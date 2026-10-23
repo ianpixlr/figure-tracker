@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="description" content="A monthly cap for figure collecting. Purchases stay on this device.">
+  <meta name="theme-color" content="#f3efe6" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#12110f" media="(prefers-color-scheme: dark)">
+  <meta name="color-scheme" content="light dark">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="Figure Cap">
+  <title>Figure Cap</title>
+  <link rel="icon" href="icons/favicon-32.png" type="image/png" sizes="32x32">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <a class="skip" href="#main">Skip to content</a>
+  <div class="app">
+    <header class="top">
+      <h1>Figure Cap</h1>
+      <p id="today-line" class="today"></p>
+    </header>
+    <main id="main" tabindex="-1">
+      <noscript>
+        <p>Figure Cap needs JavaScript. Your figures stay on this device once it runs.</p>
+      </noscript>
+    </main>
+  </div>
+  <nav class="nav" aria-label="Primary">
+    <a href="#home" data-route="home">Home</a>
+    <a href="#wish" data-route="wish">Wishlist</a>
+    <a href="#history" data-route="history">History</a>
+    <a href="#settings" data-route="settings">Settings</a>
+  </nav>
+  <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+  <dialog id="dialog"></dialog>
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>
