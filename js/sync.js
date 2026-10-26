@@ -4,7 +4,6 @@
 
 import { priorityLabel } from './budget.js';
 import { boughtAsLabel, figureTypeLabel, purchaseStatusLabel, saleStatusLabel } from './catalog.js';
-import { moodLabel } from './store.js';
 
 export const DEFAULT_SYNC_URL = 'https://script.google.com/macros/s/AKfycbzyj824VHT6WrJLZhHw-ufaf4tAT6BkvqQa3Ck_VloV2kV5vnP8JPpr3XKrOeAdzfjX4g/exec';
 
@@ -18,7 +17,13 @@ const FULL_KEY = 'figure-cap.sync-full.v1';
 export const PURCHASE_COLUMNS = [
   'id', 'date', 'name', 'series', 'brand', 'type', 'bought_as', 'condition',
   'original_amount', 'currency', 'fx_rate', 'fx_date', 'amount_rm', 'fx_overridden', 'fx_cached',
-  'shop', 'status', 'notes', 'mood', 'created_at', 'updated_at'
+  'shop', 'status', 'notes',
+  'est_full_original_amount', 'est_full_currency', 'est_full_fx_rate', 'est_full_fx_date', 'est_full_price', 'est_full_fx_overridden', 'est_full_fx_cached',
+  'deposit_original_amount', 'deposit_currency', 'deposit_fx_rate', 'deposit_fx_date', 'deposit_amount_rm', 'deposit_fx_overridden', 'deposit_fx_cached', 'deposit_date',
+  'balance_due_rm',
+  'balance_paid_original_amount', 'balance_paid_currency', 'balance_paid_fx_rate', 'balance_paid_fx_date', 'balance_paid_rm', 'balance_paid_fx_overridden', 'balance_paid_fx_cached', 'balance_paid_date',
+  'final_total_rm', 'preorder_status',
+  'created_at', 'updated_at'
 ];
 
 export const WISHLIST_COLUMNS = [
@@ -184,10 +189,53 @@ export function purchaseRow(purchase) {
     shop: purchase.shop,
     status: purchaseStatusLabel(purchase.status),
     notes: purchase.notes,
-    mood: moodLabel(purchase.mood),
+    ...preorderCells(purchase),
     created_at: purchase.createdAt,
     updated_at: purchase.updatedAt
   });
+}
+
+function cell(value) {
+  return value == null || value === '' ? '' : value;
+}
+
+function flagCell(present, value) {
+  return present ? yesNo(value) : '';
+}
+
+function preorderCells(purchase) {
+  const preorder = purchase.boughtAs === 'preorder' && purchase.preorderStatus;
+  const est = preorder && purchase.estFullPrice != null;
+  const deposit = preorder && purchase.depositAmountRm != null;
+  const balance = preorder && purchase.balancePaidRm != null;
+  return {
+    est_full_original_amount: est ? cell(purchase.estFullOriginalAmount) : '',
+    est_full_currency: est ? cell(purchase.estFullCurrency) : '',
+    est_full_fx_rate: est ? rateCell(purchase.estFullFxRate) : '',
+    est_full_fx_date: est ? cell(purchase.estFullFxDate) : '',
+    est_full_price: est ? purchase.estFullPrice : '',
+    est_full_fx_overridden: flagCell(est, purchase.estFullFxOverridden),
+    est_full_fx_cached: flagCell(est, purchase.estFullFxCached),
+    deposit_original_amount: deposit ? cell(purchase.depositOriginalAmount) : '',
+    deposit_currency: deposit ? cell(purchase.depositCurrency) : '',
+    deposit_fx_rate: deposit ? rateCell(purchase.depositFxRate) : '',
+    deposit_fx_date: deposit ? cell(purchase.depositFxDate) : '',
+    deposit_amount_rm: deposit ? purchase.depositAmountRm : '',
+    deposit_fx_overridden: flagCell(deposit, purchase.depositFxOverridden),
+    deposit_fx_cached: flagCell(deposit, purchase.depositFxCached),
+    deposit_date: deposit ? cell(purchase.depositDate) : '',
+    balance_due_rm: preorder && purchase.balanceDueRm != null ? purchase.balanceDueRm : '',
+    balance_paid_original_amount: balance ? cell(purchase.balancePaidOriginalAmount) : '',
+    balance_paid_currency: balance ? cell(purchase.balancePaidCurrency) : '',
+    balance_paid_fx_rate: balance ? rateCell(purchase.balancePaidFxRate) : '',
+    balance_paid_fx_date: balance ? cell(purchase.balancePaidFxDate) : '',
+    balance_paid_rm: balance ? purchase.balancePaidRm : '',
+    balance_paid_fx_overridden: flagCell(balance, purchase.balancePaidFxOverridden),
+    balance_paid_fx_cached: flagCell(balance, purchase.balancePaidFxCached),
+    balance_paid_date: balance ? cell(purchase.balancePaidDate) : '',
+    final_total_rm: preorder && purchase.finalTotalRm != null ? purchase.finalTotalRm : '',
+    preorder_status: preorder ? purchase.preorderStatus : ''
+  };
 }
 
 export function wishRow(item) {

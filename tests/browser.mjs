@@ -27,7 +27,62 @@ async function bodyText(page) {
 }
 
 async function shot(page, name) {
-  await page.screenshot({ path: `${SHOTS}/${name}.png`, fullPage: true });
+  await page.screenshot({ path: `${SHOTS}/${name}.png` });
+}
+
+async function assertTypeScale(page) {
+  const stray = await page.evaluate(() => {
+    const root = getComputedStyle(document.documentElement);
+    const allowed = new Set([
+      root.getPropertyValue('--font-large').trim(),
+      root.getPropertyValue('--font-medium').trim(),
+      root.getPropertyValue('--font-small').trim()
+    ]);
+    const seen = new Set();
+    const bad = [];
+    for (const el of document.body.querySelectorAll('*')) {
+      const size = getComputedStyle(el).fontSize;
+      seen.add(size);
+      if (!allowed.has(size) && bad.length < 8) {
+        bad.push(`${size} ${el.tagName}.${el.className}`.slice(0, 80));
+      }
+    }
+    return { allowed: [...allowed], seen: [...seen], bad };
+  });
+  assert.deepEqual(stray.bad, [], JSON.stringify(stray));
+  assert.equal(stray.allowed.length, 3);
+}
+
+async function assertAlignment(page) {
+  const issues = await page.evaluate(() => {
+    const main = document.querySelector('main');
+    if (!main) return ['missing main'];
+    const box = main.getBoundingClientRect();
+    const style = getComputedStyle(main);
+    const left = box.left + parseFloat(style.paddingLeft);
+    const right = box.right - parseFloat(style.paddingRight);
+    const problems = [];
+    const visible = (el) => {
+      if (el.closest('[hidden]')) return false;
+      const rect = el.getBoundingClientRect();
+      return rect.width > 2 && rect.height > 2;
+    };
+    for (const card of main.querySelectorAll('.block, .panel, .group')) {
+      if (!visible(card)) continue;
+      const rect = card.getBoundingClientRect();
+      if (Math.abs(rect.left - left) > 1 || Math.abs(rect.right - right) > 1) {
+        problems.push(`card ${card.className} ${Math.round(rect.left)}-${Math.round(rect.right)} vs ${Math.round(left)}-${Math.round(right)}`);
+      }
+      const edges = [...card.querySelectorAll('[data-edge]')].filter(visible);
+      if (edges.length < 2) continue;
+      const edgeLeft = edges[0].getBoundingClientRect().left;
+      if (edges.some((el) => Math.abs(el.getBoundingClientRect().left - edgeLeft) > 1)) {
+        problems.push(`edge ${card.className}`);
+      }
+    }
+    return problems;
+  });
+  assert.deepEqual(issues, []);
 }
 
 async function go(page, hash, ready) {
@@ -40,6 +95,7 @@ async function go(page, hash, ready) {
 
 async function typeInto(page, selector, value) {
   await page.waitForSelector(selector);
+  await page.$eval(selector, (el) => el.scrollIntoView({ block: 'center' }));
   await page.click(selector, { clickCount: 3 });
   await page.evaluate((sel) => {
     const el = document.querySelector(sel);
@@ -55,6 +111,11 @@ async function setDate(page, selector, value) {
     el.dispatchEvent(new Event('input', { bubbles: true }));
     el.dispatchEvent(new Event('change', { bubbles: true }));
   }, value);
+}
+
+async function press(page, selector) {
+  await page.waitForSelector(selector);
+  await page.$eval(selector, (el) => el.click());
 }
 
 async function clickLabel(page, label) {
@@ -90,7 +151,7 @@ async function assertNoOverflow(page) {
 async function assertTapTargets(page) {
   const small = await page.evaluate(() => {
     const nodes = [
-      ...document.querySelectorAll('a.btn, button.btn, .nav a, .chip, .chips button, .icon-btn, .monogram, .arrow, label.pick, .field input, .field select, .field textarea')
+      ...document.querySelectorAll('a.btn, button.btn, .nav a, .chip, .chips button, .icon-btn, .monogram, .arrow, label.pick, .field input, .field select, .field textarea, .search input')
     ];
     return nodes.flatMap((el) => {
       const rect = el.getBoundingClientRect();
@@ -198,14 +259,18 @@ async function main() {
     assert.deepEqual(tabs, ['Home', 'Log', 'Wishlist', 'Sell', 'Settings']);
     await assertNoOverflow(page);
     await assertTapTargets(page);
+    await assertTypeScale(page);
+    await assertAlignment(page);
+    await shot(page, 'home');
 
-    await go(page, '#settings', '#field-wait');
-    assert.equal(await page.$eval('#field-wait', (el) => el.value), '0');
+    await go(page, '#settings', '#field-cap');
+    assert.equal(await page.$('#field-wait'), null);
+    assert.equal(await page.$eval('#field-payback', (el) => el.checked), true);
     assert.equal(await page.$eval('#field-cap', (el) => el.value), '400.00');
     assert.equal(await page.$eval('#field-rollover', (el) => el.checked), false);
     assert.equal(await page.$eval('#field-sync', (el) => el.value), DEFAULT_SYNC_URL);
     await page.waitForFunction(() => !/Sync off/.test(document.getElementById('sync-status').textContent));
-    await page.click('#sync-all');
+    await press(page, '#sync-all');
     await page.waitForFunction(() => {
       const toast = document.getElementById('toast');
       return toast && !toast.hidden && toast.textContent.includes('Synced');
@@ -218,19 +283,23 @@ async function main() {
     await go(page, '#log', '#field-name');
     assert.equal(await page.$eval('#field-date', (el) => el.value), realToday);
     assert.equal(await page.$eval('#field-price-currency', (el) => el.value), 'MYR');
-    await page.click('#log-form button[type="submit"]');
+    await press(page, '#log-form button[type="submit"]');
     await page.waitForSelector('.form-error:not([hidden])');
     assert.match(await text(page, '.form-error'), /Enter a figure name/);
     await assertTapTargets(page);
     await assertNoOverflow(page);
+    await assertTypeScale(page);
+    await assertAlignment(page);
+    await shot(page, 'log-add');
 
     await typeInto(page, '#field-name', 'Asuka');
     await typeInto(page, '#field-price', '80');
+    await page.$eval('details.more', (el) => { el.open = true; });
     await page.select('#field-type', 'nendoroid');
     await typeInto(page, '#field-series', 'Eva');
     await typeInto(page, '#field-brand', 'Good Smile');
     await typeInto(page, '#field-notes', 'window');
-    await page.click('#log-form button[type="submit"]');
+    await press(page, '#log-form button[type="submit"]');
     await page.waitForSelector('#month-title');
     assert.equal(await text(page, '#spent-value'), 'RM 80.00');
     assert.equal(await text(page, '#left-value'), '320.00');
@@ -243,7 +312,7 @@ async function main() {
     await typeInto(page, '#field-price', '150');
     await setDate(page, '#field-date', earlier);
     await clickLabel(page, 'Pre-order');
-    await page.click('#log-form button[type="submit"]');
+    await press(page, '#log-form button[type="submit"]');
     await page.waitForSelector('#month-title');
     assert.equal(await text(page, '#spent-value'), 'RM 80.00');
     assert.equal(await text(page, '#ytd-value'), 'RM 230.00');
@@ -256,8 +325,14 @@ async function main() {
     assert.match(entries, /Pre-order/);
     assert.match(entries, /Nendoroid/i);
     assert.match(entries, /Good Smile/);
+    await assertTypeScale(page);
+    await assertAlignment(page);
+    await shot(page, 'log-entries');
+    await press(page, '[data-action="open-filters"]');
+    await page.waitForSelector('dialog[open] [data-filter="brand"][data-value="Good Smile"]');
+    await assertTypeScale(page);
     await page.evaluate(() => {
-      document.querySelector('[data-filter="brand"][data-value="Good Smile"]').click();
+      document.querySelector('dialog[open] [data-filter="brand"][data-value="Good Smile"]').click();
     });
     await page.waitForFunction(() => {
       const text = document.body.innerText.toLowerCase();
@@ -273,54 +348,67 @@ async function main() {
       article.querySelector('a.btn').click();
     });
     await page.waitForSelector('#edit-form');
+    await assertTypeScale(page);
+    await assertAlignment(page);
+    await shot(page, 'log-edit');
     await typeInto(page, '#field-price', '90');
-    await page.click('#edit-form button[type="submit"]');
+    await press(page, '#edit-form button[type="submit"]');
     await page.waitForSelector('#chart');
     assert.match(await bodyText(page), /RM 90\.00/);
     assert.match((await bodyText(page)).toLowerCase(), /asuka/);
 
     await go(page, '#wish', '#wish-name');
-    await page.click('#wish-form button[type="submit"]');
+    await press(page, '#wish-form button[type="submit"]');
     await page.waitForSelector('.form-error:not([hidden])');
     assert.match(await text(page, '.form-error'), /Enter a figure name/);
     await typeInto(page, '#wish-name', 'Mari');
     await typeInto(page, '#wish-price', '100');
-    await page.click('#wish-form button[type="submit"]');
+    await press(page, '#wish-form button[type="submit"]');
     await page.waitForFunction(() => document.getElementById('wish-total')?.textContent === '100.00');
     assert.match(await bodyText(page), /Fits this month/);
     assert.equal((await bodyText(page)).includes('Ready to buy'), false);
+    await assertTypeScale(page);
+    await assertAlignment(page);
     await shot(page, 'wishlist');
     await page.evaluate(() => document.querySelector('[data-action="remove-wish"]').click());
     await page.waitForFunction(() => document.getElementById('wish-total')?.textContent === '0.00');
     await page.waitForSelector('[data-action="toast-action"]');
-    await page.click('[data-action="toast-action"]');
+    await press(page, '[data-action="toast-action"]');
     await page.waitForFunction(() => document.getElementById('wish-total')?.textContent === '100.00');
 
     await go(page, '#plan', '#plan-summary');
+    await assertTypeScale(page);
+    await assertAlignment(page);
+    await shot(page, 'plan');
     await page.click('label.pick');
     await page.waitForFunction(() => document.getElementById('plan-detail').textContent.includes('would still be left'));
 
     await go(page, '#sell', '#sale-name');
     await typeInto(page, '#sale-name', 'Mari');
     await typeInto(page, '#sale-price', '70');
-    await page.click('#sale-form button[type="submit"]');
+    await press(page, '#sale-form button[type="submit"]');
     await page.waitForFunction(() => document.body.innerText.includes('No price check yet.'));
     assert.match(await bodyText(page), /MISB/);
     assert.match(await bodyText(page), /RM 70\.00/);
+    await assertTypeScale(page);
+    await assertAlignment(page);
     await shot(page, 'sell');
     await assertNoOverflow(page);
+    await press(page, 'a[href^="#edit-sale/"]');
+    await page.waitForSelector('#sale-form');
+    await assertTypeScale(page);
+    await assertAlignment(page);
+    await shot(page, 'sell-edit');
 
-    await go(page, '#home', '#log-link');
-    await shot(page, 'home');
-    await go(page, '#log', '#field-name');
-    await shot(page, 'log');
     await go(page, '#settings', '#field-cap');
+    await assertTypeScale(page);
+    await assertAlignment(page);
     await shot(page, 'settings');
 
     await go(page, '#log', '#field-name');
     await typeInto(page, '#field-name', 'Over cap');
     await typeInto(page, '#field-price', '500');
-    await page.click('#log-form button[type="submit"]');
+    await press(page, '#log-form button[type="submit"]');
     await page.waitForSelector('#cap-message');
     assert.equal(await text(page, '#cap-message'), 'Month done, next purchase waits for the 1st');
     assert.equal(await page.$eval('#cap-status', (el) => el.dataset.state), 'over');
@@ -347,13 +435,16 @@ async function main() {
     const migrated = await bodyText(page);
     assert.match(migrated, /Legacy/i);
     assert.match(migrated, /Pre-order/);
+    assert.match(migrated, /Fully paid/);
     assert.match(migrated, /box/);
-    assert.match(migrated, /Excited/);
+    assert.equal(migrated.includes('Excited'), false);
     assert.match(migrated, /RM 25\.00/);
     const stored = await page.evaluate(() => JSON.parse(localStorage.getItem('figure-cap.v1')).purchases[0]);
     assert.equal(stored.currency, 'MYR');
     assert.equal(stored.notes, 'box');
     assert.equal(stored.boughtAs, 'preorder');
+    assert.equal(stored.preorderStatus, 'fully paid');
+    assert.equal(stored.depositAmountRm, 25);
     assert.equal(stored.price, 25);
 
     await go(page, '#log', '#field-name');
@@ -364,7 +455,7 @@ async function main() {
     await page.waitForFunction(() => document.querySelector('[data-fx-hint]')?.textContent.includes('¥12,800 ≈ RM 391.04'));
     assert.equal((await text(page, '[data-fx-hint]')).includes('cached rate'), false);
     await shot(page, 'log-fx');
-    await page.click('#log-form button[type="submit"]');
+    await press(page, '#log-form button[type="submit"]');
     await page.waitForSelector('#ytd-value');
     const yen = await page.evaluate(() => {
       const data = JSON.parse(localStorage.getItem('figure-cap.v1'));
@@ -385,7 +476,7 @@ async function main() {
     await clickLabel(page, 'Use statement amount');
     await page.waitForSelector('#field-price-rm');
     await typeInto(page, '#field-price-rm', '10');
-    await page.click('#log-form button[type="submit"]');
+    await press(page, '#log-form button[type="submit"]');
     await page.waitForSelector('#spent-value');
     const spentAfter = await page.evaluate(() => {
       const data = JSON.parse(localStorage.getItem('figure-cap.v1'));
@@ -412,7 +503,52 @@ async function main() {
     await page.emulateMediaFeatures([{ name: 'prefers-color-scheme', value: 'light' }]);
     await page.reload({ waitUntil: 'networkidle0' });
     const light = await page.evaluate(() => getComputedStyle(document.body).backgroundColor);
-    assert.equal(light, 'rgb(244, 242, 238)');
+    assert.equal(light, 'rgb(245, 245, 247)');
+
+    await page.evaluate(() => {
+      localStorage.setItem('figure-cap.v1', JSON.stringify({
+        settings: { monthlyCap: 400, rollover: false, overspendPayback: true, trackingStart: '2026-10', syncUrl: '' },
+        purchases: [{
+          id: 'over',
+          name: 'October figure',
+          price: 460,
+          originalAmount: 460,
+          currency: 'MYR',
+          fxRate: 1,
+          date: '2026-10-20',
+          boughtAs: 'new',
+          status: 'received',
+          createdAt: '2026-10-20T00:00:00.000Z',
+          updatedAt: '2026-10-20T00:00:00.000Z'
+        }],
+        wishlist: [{
+          id: 'wish-payback',
+          name: 'November wish',
+          price: 100,
+          originalAmount: 100,
+          currency: 'MYR',
+          fxRate: 1,
+          priority: 'really',
+          addedAt: '2026-11-01T00:00:00.000Z',
+          updatedAt: '2026-11-01T00:00:00.000Z'
+        }],
+        forSale: []
+      }));
+      window.__figureCap.setNow('2026-11-15T04:00:00Z');
+      location.hash = '#home';
+    });
+    await page.waitForFunction(() => document.getElementById('cap-line')?.textContent.includes("October's overspend"));
+    assert.equal(await text(page, '#cap-line'), "left of RM 340.00 · RM 60.00 from October's overspend");
+    assert.equal(await text(page, '#left-value'), '340.00');
+    await assertTypeScale(page);
+    await shot(page, 'home-payback');
+    await go(page, '#entries', '#chart');
+    assert.match(await bodyText(page), /RM 340\.00/);
+    await shot(page, 'entries-payback');
+    await go(page, '#plan', '#plan-summary');
+    assert.match(await text(page, '#plan-summary'), /RM 340\.00/);
+    await shot(page, 'plan-payback');
+    await page.evaluate(() => window.__figureCap.clearNow());
 
     await page.setViewport({ width: 320, height: 700, isMobile: true, hasTouch: true, deviceScaleFactor: 2 });
     for (const [hash, ready] of [['#home', '#left-value'], ['#log', '#field-name'], ['#wish', '#wish-name'], ['#sell', '#sale-name'], ['#settings', '#field-cap']]) {

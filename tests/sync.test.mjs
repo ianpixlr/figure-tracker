@@ -52,7 +52,6 @@ function samplePurchase() {
     shop: 'AmiAmi',
     status: 'preordered',
     notes: 'shelf',
-    mood: 'excited',
     createdAt: '2026-09-15T04:00:00.000Z',
     updatedAt: '2026-09-15T04:00:00.000Z'
   };
@@ -73,6 +72,7 @@ test('the deployed web app is the default sync address', () => {
 });
 
 test('sheet headers match the rows the app sends', () => {
+  assert.equal(PURCHASE_COLUMNS.includes('mood'), false);
   assert.deepEqual(headers('Purchases'), PURCHASE_COLUMNS);
   assert.deepEqual(headers('Wishlist'), WISHLIST_COLUMNS);
   assert.deepEqual(headers('For Sale'), SALE_COLUMNS);
@@ -90,6 +90,57 @@ test('sheet headers match the rows the app sends', () => {
   assert.equal(row.fx_overridden, 'yes');
   assert.equal(row.type, 'Nendoroid');
   assert.equal(row.bought_as, 'Pre-order');
+  assert.equal(row.preorder_status, '');
+  assert.equal(row.mood, undefined);
+  const open = purchaseRow({
+    id: 'po',
+    date: '2026-10-02',
+    name: 'Rei',
+    series: 'Eva',
+    brand: 'Good Smile',
+    figureType: 'scale',
+    boughtAs: 'preorder',
+    condition: 'MISB',
+    originalAmount: 200,
+    currency: 'MYR',
+    fxRate: 1,
+    fxDate: '2026-10-02',
+    price: 200,
+    fxOverridden: false,
+    fxCached: false,
+    shop: '',
+    status: 'preordered',
+    notes: '',
+    estFullOriginalAmount: 200,
+    estFullCurrency: 'MYR',
+    estFullFxRate: 1,
+    estFullFxDate: '2026-10-02',
+    estFullPrice: 200,
+    estFullFxOverridden: false,
+    estFullFxCached: false,
+    depositOriginalAmount: 40,
+    depositCurrency: 'MYR',
+    depositFxRate: 1,
+    depositFxDate: '2026-10-02',
+    depositAmountRm: 40,
+    depositFxOverridden: false,
+    depositFxCached: false,
+    depositDate: '2026-10-02',
+    balanceDueRm: 160,
+    balancePaidOriginalAmount: null,
+    balancePaidRm: null,
+    finalTotalRm: null,
+    preorderStatus: 'deposit paid',
+    createdAt: '2026-10-02T00:00:00.000Z',
+    updatedAt: '2026-10-02T00:00:00.000Z'
+  });
+  assert.equal(open.est_full_price, 200);
+  assert.equal(open.deposit_amount_rm, 40);
+  assert.equal(open.deposit_date, '2026-10-02');
+  assert.equal(open.balance_due_rm, 160);
+  assert.equal(open.balance_paid_rm, '');
+  assert.equal(open.final_total_rm, '');
+  assert.equal(open.preorder_status, 'deposit paid');
   const wish = wishRow({
     id: 'w1',
     name: 'Rei',

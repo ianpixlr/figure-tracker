@@ -11,7 +11,13 @@ var SHEETS = {
   'Purchases': [
     'id', 'date', 'name', 'series', 'brand', 'type', 'bought_as', 'condition',
     'original_amount', 'currency', 'fx_rate', 'fx_date', 'amount_rm', 'fx_overridden', 'fx_cached',
-    'shop', 'status', 'notes', 'mood', 'created_at', 'updated_at'
+    'shop', 'status', 'notes',
+    'est_full_original_amount', 'est_full_currency', 'est_full_fx_rate', 'est_full_fx_date', 'est_full_price', 'est_full_fx_overridden', 'est_full_fx_cached',
+    'deposit_original_amount', 'deposit_currency', 'deposit_fx_rate', 'deposit_fx_date', 'deposit_amount_rm', 'deposit_fx_overridden', 'deposit_fx_cached', 'deposit_date',
+    'balance_due_rm',
+    'balance_paid_original_amount', 'balance_paid_currency', 'balance_paid_fx_rate', 'balance_paid_fx_date', 'balance_paid_rm', 'balance_paid_fx_overridden', 'balance_paid_fx_cached', 'balance_paid_date',
+    'final_total_rm', 'preorder_status',
+    'created_at', 'updated_at'
   ],
   'Wishlist': [
     'id', 'name', 'original_amount', 'currency', 'fx_rate', 'fx_date', 'amount_rm',
@@ -40,7 +46,16 @@ var DATE_COLUMNS = {
   date: true,
   fx_date: true,
   sold_date: true,
-  sold_fx_date: true
+  sold_fx_date: true,
+  est_full_fx_date: true,
+  deposit_fx_date: true,
+  deposit_date: true,
+  balance_paid_fx_date: true,
+  balance_paid_date: true
+};
+
+var RETIRED = {
+  'Purchases': ['mood']
 };
 
 var DATETIME_COLUMNS = {
@@ -126,6 +141,11 @@ function headerCells(sheet) {
 function repairSheet(ss, name, wanted) {
   var sheet = ss.getSheetByName(name);
   if (!sheet) sheet = ss.insertSheet(name);
+  (RETIRED[name] || []).forEach(function (header) {
+    var current = headerCells(sheet);
+    var index = current.indexOf(header);
+    if (index !== -1) sheet.deleteColumn(index + 1);
+  });
   var headers = headerCells(sheet).filter(function (header, index, list) {
     return header || list.slice(index).some(Boolean);
   });
@@ -152,11 +172,11 @@ function applyFormats(sheet, headers) {
   var rows = Math.max(sheet.getMaxRows() - 1, 1);
   headers.forEach(function (header, index) {
     var range = sheet.getRange(2, index + 1, rows, 1);
-    if (header === 'amount_rm' || header === 'sold_amount_rm' || header === 'low_rm' || header === 'typical_rm' || header === 'high_rm') {
+    if (/_rm$/.test(header) || header === 'est_full_price') {
       range.setNumberFormat('"RM" #,##0.00');
-    } else if (header === 'original_amount' || header === 'sold_original_amount') {
+    } else if (/original_amount$/.test(header)) {
       range.setNumberFormat('#,##0.00');
-    } else if (header === 'fx_rate' || header === 'sold_fx_rate') {
+    } else if (/fx_rate$/.test(header)) {
       range.setNumberFormat('0.000000');
     } else if (header === 'listing_count') {
       range.setNumberFormat('0');
@@ -185,7 +205,7 @@ function outgoing(header, value) {
   if (DATE_COLUMNS[header]) return asDateOnly(value);
   if (DATETIME_COLUMNS[header]) return asDateTime(value);
   if (typeof value === 'number' && isFinite(value)) return value;
-  if (header.indexOf('amount') !== -1 || header.indexOf('fx_rate') !== -1 || header === 'listing_count' || header === 'original_amount' || header === 'sold_original_amount') {
+  if (header.indexOf('amount') !== -1 || header.indexOf('fx_rate') !== -1 || header === 'listing_count' || header === 'est_full_price' || /_rm$/.test(header)) {
     var numeric = Number(value);
     if (isFinite(numeric) && String(value).trim() !== '') return numeric;
   }

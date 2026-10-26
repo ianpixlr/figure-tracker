@@ -1,8 +1,9 @@
-// Monthly cap, rollover, wishlist fit, and the 30-day pace card.
+// Monthly cap, rollover, and wishlist fit.
 // Dates are Malaysia calendar days from time.js. Money is cents from money.js.
+// A pre-order counts its deposit in the deposit month and its balance in the month that balance was paid.
 
 import { formatRM, fromCents, toCents } from './money.js';
-import { addMonths, daysBetween, isMonth, isYMD, monthsFrom, todayYMD } from './time.js';
+import { addMonths, isMonth, isYMD, monthsFrom, todayYMD } from './time.js';
 
 export const CAP_USED_MESSAGE = 'Month done, next purchase waits for the 1st';
 
@@ -18,20 +19,68 @@ export function priorityLabel(priority) {
   return PRIORITY_OPTIONS.find((item) => item.value === priority)?.label || 'Really want';
 }
 
+export function capPayments(purchase) {
+  const preorder = purchase?.boughtAs === 'preorder' || purchase?.type === 'preorder';
+  if (preorder && (purchase.depositAmountRm != null || purchase.preorderStatus)) {
+    const payments = [];
+    if (Number(purchase.depositAmountRm) > 0 && isYMD(purchase.depositDate)) {
+      payments.push({ date: purchase.depositDate, amount: Number(purchase.depositAmountRm) });
+    }
+    if (Number(purchase.balancePaidRm) > 0 && isYMD(purchase.balancePaidDate)) {
+      payments.push({ date: purchase.balancePaidDate, amount: Number(purchase.balancePaidRm) });
+    }
+    return payments;
+  }
+  if (!purchase || !isYMD(purchase.date) || !Number.isFinite(Number(purchase.price))) return [];
+  return [{ date: purchase.date, amount: Number(purchase.price) }];
+}
+
+function spentCents(purchases, match) {
+  let cents = 0;
+  for (const purchase of purchases) {
+    for (const payment of capPayments(purchase)) {
+      if (match(payment.date)) cents += toCents(payment.amount) ?? 0;
+    }
+  }
+  return cents;
+}
+
 export function monthSpent(purchases, ym) {
-  const cents = purchases.reduce((sum, purchase) => {
-    if (!isYMD(purchase.date) || purchase.date.slice(0, 7) !== ym) return sum;
-    return sum + (toCents(purchase.price) ?? 0);
-  }, 0);
-  return fromCents(cents);
+  return fromCents(spentCents(purchases, (date) => isYMD(date) && date.slice(0, 7) === ym));
 }
 
 export function yearSpent(purchases, year) {
-  const cents = purchases.reduce((sum, purchase) => {
-    if (!isYMD(purchase.date) || purchase.date.slice(0, 4) !== year) return sum;
-    return sum + (toCents(purchase.price) ?? 0);
-  }, 0);
-  return fromCents(cents);
+  return fromCents(spentCents(purchases, (date) => isYMD(date) && date.slice(0, 4) === year));
+}
+
+export function balancesComing(purchases) {
+  const open = purchases.filter((purchase) => purchase.preorderStatus === 'deposit paid');
+  const cents = open.reduce((sum, purchase) => sum + (toCents(purchase.balanceDueRm) ?? 0), 0);
+  return { count: open.length, total: fromCents(cents) };
+}
+
+export function yearBreakdown(purchases, year) {
+  const types = new Map();
+  const figures = new Set();
+  for (const purchase of purchases) {
+    let counted = false;
+    for (const payment of capPayments(purchase)) {
+      if (!isYMD(payment.date) || payment.date.slice(0, 4) !== year) continue;
+      const key = purchase.figureType || '';
+      const row = types.get(key) || { figureType: key, cents: 0 };
+      row.cents += toCents(payment.amount) ?? 0;
+      types.set(key, row);
+      counted = true;
+    }
+    if (counted) figures.add(purchase.id || purchase.name);
+  }
+  return {
+    types: [...types.values()]
+      .sort((a, b) => b.cents - a.cents)
+      .slice(0, 2)
+      .map((row) => ({ figureType: row.figureType, total: fromCents(row.cents) })),
+    count: figures.size
+  };
 }
 
 // Earliest of the saved start month and any logged purchase. Used so a
@@ -40,37 +89,70 @@ export function yearSpent(purchases, year) {
 export function budgetStart(settings, purchases) {
   let start = isMonth(settings?.trackingStart) ? settings.trackingStart : null;
   for (const purchase of purchases) {
-    if (!isYMD(purchase.date)) continue;
-    const ym = purchase.date.slice(0, 7);
-    if (!start || ym < start) start = ym;
+    for (const payment of capPayments(purchase)) {
+      const ym = payment.date.slice(0, 7);
+      if (!start || ym < start) start = ym;
+    }
   }
   return start;
 }
 
-export function effectiveCap(settings, purchases, ym) {
-  const base = toCents(settings.monthlyCap) ?? 0;
-  if (!settings.rollover) return fromCents(base);
+// Each month starts from the base cap. Only the previous month's net result
+// carries: unused money if rollover is on, overspend if payback is on.
+// The two cannot both apply to the same previous month. The cap never goes below 0.
+export function capAdjustment(settings, purchases, ym) {
+  const base = Math.max(0, toCents(settings?.monthlyCap) ?? 0);
+  const rolloverOn = Boolean(settings?.rollover);
+  const paybackOn = settings?.overspendPayback !== false;
+  const plain = { cap: fromCents(base), rollover: 0, payback: 0, paybackMonth: '' };
+  if ((!rolloverOn && !paybackOn) || !isMonth(ym)) return plain;
   const start = budgetStart(settings, purchases);
-  if (!start || ym <= start) return fromCents(base);
+  if (!start || ym <= start) return plain;
 
   let cap = base;
   let cursor = start;
   let guard = 0;
+  let rollover = 0;
+  let payback = 0;
+  let paybackMonth = '';
   while (cursor < ym && guard < 240) {
     const spent = toCents(monthSpent(purchases, cursor)) ?? 0;
-    const leftover = Math.max(0, cap - spent);
+    const delta = cap - spent;
+    const source = cursor;
     cursor = addMonths(cursor, 1);
-    cap = base + leftover;
+    rollover = 0;
+    payback = 0;
+    paybackMonth = '';
+    if (delta > 0 && rolloverOn) {
+      cap = base + delta;
+      rollover = delta;
+    } else if (delta < 0 && paybackOn) {
+      const reduced = Math.max(0, base + delta);
+      payback = base - reduced;
+      paybackMonth = payback > 0 ? source : '';
+      cap = reduced;
+    } else {
+      cap = base;
+    }
     guard += 1;
   }
-  return fromCents(cap);
+  return {
+    cap: fromCents(cap),
+    rollover: fromCents(rollover),
+    payback: fromCents(payback),
+    paybackMonth
+  };
+}
+
+export function effectiveCap(settings, purchases, ym) {
+  return capAdjustment(settings, purchases, ym).cap;
 }
 
 export function monthSnapshot(settings, purchases, ym) {
-  const cap = toCents(effectiveCap(settings, purchases, ym)) ?? 0;
+  const adjustment = capAdjustment(settings, purchases, ym);
+  const cap = toCents(adjustment.cap) ?? 0;
   const spent = toCents(monthSpent(purchases, ym)) ?? 0;
   const left = cap - spent;
-  const base = toCents(settings.monthlyCap) ?? 0;
   let state = 'ok';
   if (spent > cap) state = 'over';
   else if (cap > 0 && spent * 4 > cap * 3) state = 'warn';
@@ -84,7 +166,9 @@ export function monthSnapshot(settings, purchases, ym) {
     over: left < 0 ? fromCents(-left) : 0,
     state,
     usedUp: left <= 0 && (cap > 0 || spent > 0),
-    rollover: cap > base ? fromCents(cap - base) : 0
+    rollover: adjustment.rollover,
+    payback: adjustment.payback,
+    paybackMonth: adjustment.paybackMonth
   };
 }
 
@@ -125,52 +209,8 @@ export function homeModel(data, date) {
     year,
     month: monthSnapshot(data.settings, data.purchases, ym),
     ytd: yearSpent(data.purchases, year),
-    pace: paceInsight(data.purchases, today, data.settings.monthlyCap)
-  };
-}
-
-function roundSuggestedCap(average) {
-  const cents = toCents(average) ?? 0;
-  const step = 1000;
-  const rounded = Math.max(step, Math.round(cents / step) * step);
-  return fromCents(rounded);
-}
-
-function suggestionFor(average, cap) {
-  const avgText = formatRM(average);
-  const capText = formatRM(cap);
-  const avgCents = toCents(average) ?? 0;
-  const capCents = toCents(cap) ?? 0;
-  if (capCents <= 0) {
-    return `Your monthly average is ${avgText}. Set a cap in Settings when you want a limit.`;
-  }
-  if (avgCents > capCents) {
-    const suggested = formatRM(roundSuggestedCap(average));
-    return `Your monthly average is ${avgText}, above the ${capText} cap. You could set the cap to ${suggested} to match it, or leave ${capText} in place so the limit keeps slowing new buys.`;
-  }
-  if (avgCents * 5 < capCents * 4) {
-    const suggested = formatRM(roundSuggestedCap(average));
-    return `Your monthly average is ${avgText}, below the ${capText} cap. You could lower the cap to ${suggested} if you want it closer to what you spend, or keep ${capText} if the extra room is useful.`;
-  }
-  return `Your monthly average is ${avgText}, close to the ${capText} cap. No change needed.`;
-}
-
-// Shows once the first logged purchase is at least 30 Malaysia days ago.
-// The average is total spent since that day, scaled to a 30-day month.
-export function paceInsight(purchases, todayYmd, cap) {
-  const past = purchases.filter((purchase) => isYMD(purchase.date) && purchase.date <= todayYmd);
-  if (!past.length) return null;
-  const first = past.map((purchase) => purchase.date).sort()[0];
-  const days = daysBetween(first, todayYmd);
-  if (days < 30) return null;
-  const totalCents = past.reduce((sum, purchase) => sum + (toCents(purchase.price) ?? 0), 0);
-  const average = fromCents(Math.round((totalCents * 30) / days));
-  return {
-    first,
-    days,
-    total: fromCents(totalCents),
-    average,
-    suggestion: suggestionFor(average, cap)
+    balances: balancesComing(data.purchases),
+    breakdown: yearBreakdown(data.purchases, year)
   };
 }
 
@@ -203,36 +243,13 @@ export function fitLabel(price, left) {
   return `${fit.percent}% of what's left · ${shortText}`;
 }
 
-export function waitStatus(addedAt, waitHours, at) {
-  const hours = Number(waitHours);
-  if (!Number.isFinite(hours) || hours <= 0) {
-    return { enabled: false, ready: true, text: '' };
-  }
-  const start = Date.parse(addedAt);
-  if (Number.isNaN(start)) return { enabled: true, ready: true, text: 'Ready to buy' };
-  const remaining = start + hours * 60 * 60 * 1000 - at.getTime();
-  if (remaining <= 0) return { enabled: true, ready: true, text: 'Ready to buy' };
-  return { enabled: true, ready: false, text: `Ready in ${formatRemain(remaining)}` };
-}
-
-function formatRemain(ms) {
-  const minutes = Math.max(1, Math.ceil(ms / 60000));
-  const days = Math.floor(minutes / 1440);
-  const hours = Math.floor((minutes % 1440) / 60);
-  const mins = minutes % 60;
-  if (days > 0) return hours > 0 ? `${days}d ${hours}h` : `${days}d`;
-  if (hours > 0) return mins > 0 ? `${hours}h ${mins}m` : `${hours}h`;
-  return `${mins}m`;
-}
-
 export function wishlistModel(data, date) {
   const home = homeModel(data, date);
   const items = sortWishlist(data.wishlist).map((item) => ({
     ...item,
     priorityLabel: priorityLabel(item.priority),
     fitLabel: fitLabel(item.price, home.month.room),
-    fit: fitFor(item.price, home.month.room),
-    wait: waitStatus(item.addedAt, data.settings.waitHours, date)
+    fit: fitFor(item.price, home.month.room)
   }));
   const totalCents = data.wishlist.reduce((sum, item) => sum + (toCents(item.price) ?? 0), 0);
   return {

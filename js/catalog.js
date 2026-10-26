@@ -62,17 +62,35 @@ export function saleStatusLabel(value) {
   return SALE_STATUSES.find((item) => item.value === value)?.label || 'Listed';
 }
 
+export function figureAmount(purchase) {
+  if ((purchase.boughtAs === 'preorder' || purchase.type === 'preorder') && purchase.preorderStatus === 'fully paid' && purchase.finalTotalRm != null) {
+    return purchase.finalTotalRm;
+  }
+  if ((purchase.boughtAs === 'preorder' || purchase.type === 'preorder') && purchase.estFullPrice != null) {
+    return purchase.estFullPrice;
+  }
+  return purchase.price;
+}
+
+export function preorderStatusLabel(value) {
+  if (value === 'deposit paid') return 'Deposit paid';
+  if (value === 'fully paid') return 'Fully paid';
+  return '';
+}
+
 export function filterPurchases(purchases, filters = {}) {
   const year = String(filters.year || '');
   const month = String(filters.month || '');
   const brand = String(filters.brand || '');
   const series = String(filters.series || '');
+  const query = String(filters.q || '').trim().toLowerCase();
   return purchases.filter((purchase) => {
     if (!isYMD(purchase.date)) return false;
     if (year && purchase.date.slice(0, 4) !== year) return false;
     if (month && purchase.date.slice(5, 7) !== month) return false;
     if (brand && purchase.brand !== brand) return false;
     if (series && purchase.series !== series) return false;
+    if (query && !String(purchase.name || '').toLowerCase().includes(query)) return false;
     return true;
   });
 }
@@ -83,7 +101,7 @@ export function categoryTotals(purchases) {
     const key = purchase.figureType || '';
     const row = map.get(key) || { figureType: key, count: 0, cents: 0 };
     row.count += 1;
-    row.cents += toCents(purchase.price) ?? 0;
+    row.cents += toCents(figureAmount(purchase)) ?? 0;
     map.set(key, row);
   }
   return [...map.values()]

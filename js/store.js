@@ -3,32 +3,18 @@
 // Existing saves used `type` and `note`. Loading rewrites them into the
 // current shape and keeps the ringgit amount the cap already used.
 
-import { parseMoney } from './money.js';
+import { fromCents, parseMoney, toCents } from './money.js';
 import { isMonth, isYMD } from './time.js';
 
 export const STORAGE_KEY = 'figure-cap.v1';
 export const MAX_MONEY = 1000000;
 export const MAX_FOREIGN = 100000000;
-export const MAX_WAIT_HOURS = 720;
 
-export const MOODS = [
-  { value: '', label: 'None' },
-  { value: 'excited', label: 'Excited' },
-  { value: 'bored', label: 'Bored' },
-  { value: 'stressed', label: 'Stressed' },
-  { value: 'treat', label: 'A treat' }
-];
-
-const MOOD_VALUES = new Set(MOODS.map((mood) => mood.value));
 const FIGURE_TYPES = new Set(['', 'scale', 'nendoroid', 'figma', 'prize', 'model-kit', 'other']);
 const BOUGHT_AS = new Set(['new', 'preorder', 'second-hand']);
 const PURCHASE_CONDITIONS = new Set(['', 'MISB', 'MIB', 'BIB', 'Loose', 'Other']);
 const SALE_CONDITIONS = new Set(['MISB', 'MIB', 'BIB', 'Loose']);
-
-export function moodLabel(mood) {
-  if (!mood) return '';
-  return MOODS.find((item) => item.value === mood)?.label || '';
-}
+const PREORDER_STATUS = new Set(['deposit paid', 'fully paid']);
 
 export function uid() {
   if (globalThis.crypto?.randomUUID) return crypto.randomUUID();
@@ -39,8 +25,8 @@ export function emptyData(todayYm) {
   return {
     settings: {
       monthlyCap: 400,
-      waitHours: 0,
       rollover: false,
+      overspendPayback: true,
       trackingStart: todayYm,
       syncUrl: ''
     },
@@ -59,15 +45,10 @@ function cleanSettings(source, todayYm) {
   if (cap == null || cap < 0) cap = 400;
   if (cap > MAX_MONEY) cap = MAX_MONEY;
 
-  let wait = Number(source?.waitHours);
-  if (!Number.isFinite(wait) || wait < 0) wait = 0;
-  wait = Math.round(wait);
-  if (wait > MAX_WAIT_HOURS) wait = MAX_WAIT_HOURS;
-
   return {
     monthlyCap: cap,
-    waitHours: wait,
     rollover: Boolean(source?.rollover),
+    overspendPayback: source?.overspendPayback !== false,
     trackingStart: isMonth(source?.trackingStart) ? source.trackingStart : todayYm,
     syncUrl: clip(source?.syncUrl, 500)
   };
@@ -137,6 +118,147 @@ function takeId(input, seen) {
   return id;
 }
 
+function present(input, keys) {
+  for (const key of keys) {
+    if (input[key] != null && input[key] !== '') return input[key];
+  }
+  return undefined;
+}
+
+function sideMoney(input, spec, fallbackDate) {
+  const source = {
+    originalAmount: present(input, spec.original),
+    currency: present(input, spec.currency),
+    fxRate: present(input, spec.rate),
+    fxDate: present(input, spec.fxDate),
+    fxOverridden: present(input, spec.over),
+    fxCached: present(input, spec.cached),
+    price: present(input, spec.price)
+  };
+  if (source.originalAmount == null && source.price == null && !source.currency) return null;
+  return cleanMoney(source, fallbackDate, ['price']);
+}
+
+const EST_SPEC = {
+  original: ['estFullOriginalAmount', 'est_full_original_amount'],
+  currency: ['estFullCurrency', 'est_full_currency'],
+  rate: ['estFullFxRate', 'est_full_fx_rate'],
+  fxDate: ['estFullFxDate', 'est_full_fx_date'],
+  over: ['estFullFxOverridden', 'est_full_fx_overridden'],
+  cached: ['estFullFxCached', 'est_full_fx_cached'],
+  price: ['estFullPrice', 'est_full_price']
+};
+
+const DEPOSIT_SPEC = {
+  original: ['depositOriginalAmount', 'deposit_original_amount'],
+  currency: ['depositCurrency', 'deposit_currency'],
+  rate: ['depositFxRate', 'deposit_fx_rate'],
+  fxDate: ['depositFxDate', 'deposit_fx_date'],
+  over: ['depositFxOverridden', 'deposit_fx_overridden'],
+  cached: ['depositFxCached', 'deposit_fx_cached'],
+  price: ['depositAmountRm', 'deposit_amount_rm']
+};
+
+const BALANCE_SPEC = {
+  original: ['balancePaidOriginalAmount', 'balance_paid_original_amount'],
+  currency: ['balancePaidCurrency', 'balance_paid_currency'],
+  rate: ['balancePaidFxRate', 'balance_paid_fx_rate'],
+  fxDate: ['balancePaidFxDate', 'balance_paid_fx_date'],
+  over: ['balancePaidFxOverridden', 'balance_paid_fx_overridden'],
+  cached: ['balancePaidFxCached', 'balance_paid_fx_cached'],
+  price: ['balancePaidRm', 'balance_paid_rm']
+};
+
+export function emptyPreorder() {
+  return {
+    estFullOriginalAmount: null,
+    estFullCurrency: '',
+    estFullFxRate: null,
+    estFullFxDate: '',
+    estFullPrice: null,
+    estFullFxOverridden: false,
+    estFullFxCached: false,
+    depositOriginalAmount: null,
+    depositCurrency: '',
+    depositFxRate: null,
+    depositFxDate: '',
+    depositAmountRm: null,
+    depositFxOverridden: false,
+    depositFxCached: false,
+    depositDate: '',
+    balanceDueRm: null,
+    balancePaidOriginalAmount: null,
+    balancePaidCurrency: '',
+    balancePaidFxRate: null,
+    balancePaidFxDate: '',
+    balancePaidRm: null,
+    balancePaidFxOverridden: false,
+    balancePaidFxCached: false,
+    balancePaidDate: '',
+    finalTotalRm: null,
+    preorderStatus: ''
+  };
+}
+
+function packSide(prefix, money) {
+  if (prefix === 'est') {
+    return {
+      estFullOriginalAmount: money.originalAmount,
+      estFullCurrency: money.currency,
+      estFullFxRate: money.fxRate,
+      estFullFxDate: money.fxDate,
+      estFullPrice: money.price,
+      estFullFxOverridden: money.fxOverridden,
+      estFullFxCached: money.fxCached
+    };
+  }
+  if (prefix === 'deposit') {
+    return {
+      depositOriginalAmount: money.originalAmount,
+      depositCurrency: money.currency,
+      depositFxRate: money.fxRate,
+      depositFxDate: money.fxDate,
+      depositAmountRm: money.price,
+      depositFxOverridden: money.fxOverridden,
+      depositFxCached: money.fxCached
+    };
+  }
+  return {
+    balancePaidOriginalAmount: money.originalAmount,
+    balancePaidCurrency: money.currency,
+    balancePaidFxRate: money.fxRate,
+    balancePaidFxDate: money.fxDate,
+    balancePaidRm: money.price,
+    balancePaidFxOverridden: money.fxOverridden,
+    balancePaidFxCached: money.fxCached
+  };
+}
+
+// Balance is omitted when balanceRm is null. A deposit that already covers
+// the estimate is fully paid, with no separate balance payment.
+export function settlePreorder(estRm, depositRm, balanceRm) {
+  const est = toCents(estRm) ?? 0;
+  const deposit = toCents(depositRm) ?? 0;
+  const due = Math.max(0, est - deposit);
+  const recorded = balanceRm != null && balanceRm !== '';
+  const paid = recorded ? (toCents(balanceRm) ?? 0) : 0;
+  const fully = recorded || due === 0;
+  const finalCents = fully ? deposit + (recorded ? paid : 0) : null;
+  return {
+    balanceDueRm: fromCents(fully ? 0 : due),
+    finalTotalRm: finalCents == null ? null : fromCents(finalCents),
+    preorderStatus: fully ? 'fully paid' : 'deposit paid',
+    differenceRm: finalCents == null ? null : fromCents(finalCents - est)
+  };
+}
+
+function hasPreorderDetail(input) {
+  return present(input, [
+    'preorderStatus', 'preorder_status', 'estFullPrice', 'est_full_price',
+    'depositAmountRm', 'deposit_amount_rm', 'finalTotalRm', 'final_total_rm'
+  ]) != null;
+}
+
 function cleanPurchase(input, seen) {
   if (!input || typeof input !== 'object') return null;
   const name = clip(input.name, 80);
@@ -152,10 +274,10 @@ function cleanPurchase(input, seen) {
   if (!figureType && FIGURE_TYPES.has(input.type) && input.type) figureType = input.type;
 
   const money = cleanMoney(input, date, ['amountRm', 'amount_rm', 'price']);
-  if (!money) return null;
+  if (!money && boughtAs !== 'preorder') return null;
 
   const createdAt = stamp(input.createdAt, 0);
-  return {
+  const base = {
     id: takeId(input, seen),
     name,
     series: clip(input.series, 80),
@@ -163,14 +285,61 @@ function cleanPurchase(input, seen) {
     figureType,
     boughtAs,
     condition: PURCHASE_CONDITIONS.has(input.condition) ? input.condition : '',
-    ...money,
     date,
     shop: clip(input.shop, 80),
     status,
     notes: clip(input.notes ?? input.note, 280),
-    mood: MOOD_VALUES.has(input.mood) ? input.mood : '',
     createdAt,
     updatedAt: stamp(input.updatedAt, createdAt)
+  };
+
+  if (boughtAs !== 'preorder') {
+    if (!money) return null;
+    return { ...base, ...money, ...emptyPreorder() };
+  }
+
+  const depositDate = dateOrBlank(input.depositDate ?? input.deposit_date) || date;
+  let est = sideMoney(input, EST_SPEC, depositDate);
+  let deposit = sideMoney(input, DEPOSIT_SPEC, depositDate);
+  const balanceDate = dateOrBlank(input.balancePaidDate ?? input.balance_paid_date);
+  let balance = balanceDate ? sideMoney(input, BALANCE_SPEC, balanceDate) : null;
+
+  if (!hasPreorderDetail(input)) {
+    if (!money) return null;
+    est = money;
+    deposit = money;
+  }
+  if (!est || !deposit) return null;
+
+  const settled = settlePreorder(est.price, deposit.price, balance ? balance.price : null);
+  if (!PREORDER_STATUS.has(settled.preorderStatus)) return null;
+  const shown = settled.finalTotalRm ?? est.price;
+  return {
+    ...base,
+    originalAmount: est.originalAmount,
+    currency: est.currency,
+    fxRate: est.fxRate,
+    fxDate: est.fxDate,
+    fxOverridden: est.fxOverridden,
+    fxCached: est.fxCached,
+    price: shown,
+    date: depositDate,
+    ...packSide('est', est),
+    ...packSide('deposit', deposit),
+    depositDate,
+    balanceDueRm: settled.balanceDueRm,
+    ...(balance ? packSide('balance', balance) : packSide('balance', {
+      originalAmount: null,
+      currency: '',
+      fxRate: null,
+      fxDate: '',
+      price: null,
+      fxOverridden: false,
+      fxCached: false
+    })),
+    balancePaidDate: balance ? balanceDate : '',
+    finalTotalRm: settled.finalTotalRm,
+    preorderStatus: settled.preorderStatus
   };
 }
 
@@ -268,7 +437,7 @@ export function normalizeData(input, todayYm) {
 
 export function exportPayload(data, exportedAt) {
   return {
-    version: 2,
+    version: 3,
     exportedAt,
     settings: data.settings,
     purchases: data.purchases,

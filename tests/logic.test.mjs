@@ -7,12 +7,13 @@ import {
   fitFor,
   fitLabel,
   historyGroups,
+  historyModel,
   homeModel,
   monthSnapshot,
-  paceInsight,
+  monthSpent,
   planModel,
   sortWishlist,
-  waitStatus,
+  wishlistModel,
   yearSpent
 } from '../js/budget.js';
 import { categoryTotals, filterPurchases, latestPriceCheck } from '../js/catalog.js';
@@ -39,8 +40,8 @@ function memory() {
 function settings(extra = {}) {
   return {
     monthlyCap: 400,
-    waitHours: 0,
     rollover: false,
+    overspendPayback: true,
     trackingStart: '2026-10',
     ...extra
   };
@@ -54,7 +55,6 @@ function buy(date, price, extra = {}) {
     date,
     type: extra.type || 'bought',
     note: '',
-    mood: '',
     createdAt: extra.createdAt || '2026-10-01T00:00:00.000Z'
   };
 }
@@ -108,20 +108,37 @@ test('cap states change after 75% and after the cap', () => {
   assert.equal(over.room, 0);
 });
 
-test('pre-orders count in the month paid, at full price', () => {
-  const purchases = [
+test('a pre-order deposit and balance count in the months they were paid', () => {
+  const legacy = [
     buy('2026-10-03', 80, { type: 'bought' }),
     buy('2026-09-02', 150, { type: 'preorder' }),
     buy('2026-11-01', 40, { type: 'preorder' })
   ];
-  const october = monthSnapshot(settings(), purchases, '2026-10');
+  const october = monthSnapshot(settings(), legacy, '2026-10');
   assert.equal(october.spent, 80);
-  assert.equal(monthSnapshot(settings(), purchases, '2026-09').spent, 150);
-  assert.equal(yearSpent(purchases, '2026'), 270);
-  assert.equal(yearSpent(purchases, '2025'), 0);
+  assert.equal(monthSnapshot(settings(), legacy, '2026-09').spent, 150);
+  assert.equal(yearSpent(legacy, '2026'), 270);
+  assert.equal(yearSpent(legacy, '2025'), 0);
+
+  const split = {
+    id: 'po',
+    name: 'Rei',
+    boughtAs: 'preorder',
+    preorderStatus: 'fully paid',
+    date: '2026-10-02',
+    price: 170,
+    depositDate: '2026-10-02',
+    depositAmountRm: 50,
+    balancePaidDate: '2026-11-04',
+    balancePaidRm: 120
+  };
+  assert.equal(monthSpent([split], '2026-10'), 50);
+  assert.equal(monthSpent([split], '2026-11'), 120);
+  assert.equal(monthSpent([split], '2026-09'), 0);
+  assert.equal(yearSpent([split], '2026'), 170);
 });
 
-test('rollover adds last month leftover and ignores overspend', () => {
+test('rollover adds last month leftover', () => {
   const purchases = [
     buy('2026-08-01', 0.01),
     buy('2026-09-01', 100)
@@ -131,9 +148,63 @@ test('rollover adds last month leftover and ignores overspend', () => {
   assert.equal(effectiveCap(rolling, purchases, '2026-09'), 799.99);
   assert.equal(effectiveCap(rolling, purchases, '2026-10'), 1099.99);
 
-  const overspent = settings({ rollover: true, trackingStart: '2026-09' });
+  const overspent = settings({ rollover: true, overspendPayback: false, trackingStart: '2026-09' });
   assert.equal(effectiveCap(overspent, [buy('2026-09-01', 500)], '2026-10'), 400);
   assert.equal(effectiveCap(settings({ rollover: false }), [], '2026-10'), 400);
+});
+
+test('overspend lowers only the next month', () => {
+  const base = settings({ trackingStart: '2026-10' });
+  const purchases = [buy('2026-10-01', 460)];
+  const november = monthSnapshot(base, purchases, '2026-11');
+  assert.equal(november.cap, 340);
+  assert.equal(november.payback, 60);
+  assert.equal(november.paybackMonth, '2026-10');
+  assert.equal(effectiveCap(base, purchases, '2026-12'), 400);
+  assert.equal(monthSnapshot(base, purchases, '2026-12').payback, 0);
+
+  const history = historyModel(
+    { settings: base, purchases, wishlist: [] },
+    new Date('2026-11-15T04:00:00Z')
+  );
+  assert.equal(history.charts.find((row) => row.ym === '2026-11').cap, 340);
+  const planned = wishlistModel({
+    settings: base,
+    purchases,
+    wishlist: [{ id: 'w', name: 'Grail', price: 300, priority: 'must', addedAt: '2026-11-01T00:00:00.000Z' }]
+  }, new Date('2026-11-15T04:00:00Z'));
+  assert.equal(planned.month.cap, 340);
+  assert.equal(planned.room, 340);
+  assert.equal(planModel(planned.items, new Set(['w']), planned.room).remaining, 40);
+});
+
+test('payback off leaves the next cap unchanged', () => {
+  const base = settings({ trackingStart: '2026-10', overspendPayback: false });
+  const purchases = [buy('2026-10-01', 460)];
+  const november = monthSnapshot(base, purchases, '2026-11');
+  assert.equal(november.cap, 400);
+  assert.equal(november.payback, 0);
+  assert.equal(november.paybackMonth, '');
+});
+
+test('rollover and payback each use only the previous month', () => {
+  const both = settings({ rollover: true, overspendPayback: true, trackingStart: '2026-09' });
+  const purchases = [buy('2026-09-01', 100), buy('2026-10-01', 760)];
+  assert.equal(effectiveCap(both, purchases, '2026-10'), 700);
+  const november = monthSnapshot(both, purchases, '2026-11');
+  assert.equal(november.cap, 340);
+  assert.equal(november.payback, 60);
+  assert.equal(november.rollover, 0);
+  assert.equal(effectiveCap(both, purchases, '2026-12'), 740);
+});
+
+test('payback never drops the cap below zero', () => {
+  const base = settings({ trackingStart: '2026-10' });
+  const november = monthSnapshot(base, [buy('2026-10-01', 900)], '2026-11');
+  assert.equal(november.cap, 0);
+  assert.equal(november.payback, 400);
+  assert.equal(november.paybackMonth, '2026-10');
+  assert.equal(effectiveCap(base, [buy('2026-10-01', 900)], '2026-12'), 400);
 });
 
 test('rollover chain crosses into January', () => {
@@ -156,23 +227,6 @@ test('home model uses the Malaysia month of the clock', () => {
   assert.equal(after.ym, '2026-11');
   assert.equal(after.month.spent, 20);
   assert.equal(after.month.usedUp, false);
-});
-
-test('pace card waits for 30 days and suggests a cap change', () => {
-  const under = [buy('2026-09-13', 300)];
-  assert.equal(paceInsight(under, '2026-10-12', 400), null);
-  const pace = paceInsight(under, '2026-10-23', 400);
-  assert.equal(pace.days, 40);
-  assert.equal(pace.average, 225);
-  assert.match(pace.suggestion, /RM 225\.00, below the RM 400\.00 cap/);
-  assert.match(pace.suggestion, /RM 230\.00/);
-
-  const over = paceInsight([buy('2026-09-23', 800)], '2026-10-23', 400);
-  assert.equal(over.average, 800);
-  assert.match(over.suggestion, /above the RM 400\.00 cap/);
-
-  const close = paceInsight([buy('2026-09-23', 350)], '2026-10-23', 400);
-  assert.match(close.suggestion, /No change needed/);
 });
 
 test('wishlist sorts by priority and describes the cap', () => {
@@ -209,18 +263,6 @@ test('plan total is compared with room left', () => {
   assert.equal(alreadyOver.over, 10);
 });
 
-test('optional wait is off at 0 hours and gates only when set', () => {
-  const added = '2026-10-23T02:00:00.000Z';
-  const at = new Date(added);
-  assert.deepEqual(waitStatus(added, 0, at), { enabled: false, ready: true, text: '' });
-  const early = waitStatus(added, 48, new Date(Date.parse(added) + 47 * 3600000));
-  assert.equal(early.ready, false);
-  assert.match(early.text, /^Ready in /);
-  const ready = waitStatus(added, 48, new Date(Date.parse(added) + 48 * 3600000));
-  assert.equal(ready.ready, true);
-  assert.equal(ready.text, 'Ready to buy');
-});
-
 test('history groups months and the chart keeps a short recent window', () => {
   const purchases = [buy('2026-09-02', 150), buy('2026-10-03', 80), buy('2026-10-01', 20)];
   const groups = historyGroups(settings(), purchases);
@@ -238,7 +280,8 @@ test('storage defaults, import, and corrupt files', () => {
   const first = load('2026-10', store);
   assert.equal(first.corrupt, false);
   assert.equal(first.data.settings.monthlyCap, 400);
-  assert.equal(first.data.settings.waitHours, 0);
+  assert.equal(first.data.settings.overspendPayback, true);
+  assert.equal(first.data.settings.waitHours, undefined);
   assert.equal(first.data.settings.rollover, false);
   assert.equal(first.data.settings.trackingStart, '2026-10');
 
@@ -261,16 +304,22 @@ test('storage defaults, import, and corrupt files', () => {
   };
   const clean = normalizeData(messy, '2026-10');
   assert.equal(clean.settings.monthlyCap, 250.5);
-  assert.equal(clean.settings.waitHours, 720);
+  assert.equal(clean.settings.overspendPayback, true);
+  assert.equal(clean.settings.waitHours, undefined);
   assert.equal(clean.settings.rollover, true);
   assert.equal(clean.purchases.length, 1);
-  assert.equal(clean.purchases[0].mood, '');
+  assert.equal(clean.purchases[0].mood, undefined);
   assert.equal(clean.purchases[0].notes, 'shelf');
   assert.equal(clean.purchases[0].boughtAs, 'preorder');
   assert.equal(clean.purchases[0].status, 'preordered');
   assert.equal(clean.purchases[0].currency, 'MYR');
   assert.equal(clean.purchases[0].originalAmount, 40);
   assert.equal(clean.purchases[0].price, 40);
+  assert.equal(clean.purchases[0].preorderStatus, 'fully paid');
+  assert.equal(clean.purchases[0].estFullPrice, 40);
+  assert.equal(clean.purchases[0].depositAmountRm, 40);
+  assert.equal(clean.purchases[0].balanceDueRm, 0);
+  assert.equal(clean.purchases[0].finalTotalRm, 40);
   assert.equal(clean.purchases[0].fxRate, 1);
   assert.equal(clean.purchases[0].fxOverridden, false);
   assert.equal(clean.purchases[0].fxDate, '2026-08-02');
@@ -282,7 +331,13 @@ test('storage defaults, import, and corrupt files', () => {
 
   save(clean, store);
   assert.equal(load('2026-10', store).data.purchases[0].price, 40);
-  assert.equal(exportPayload(clean, '2026-10-23T00:00:00.000Z').version, 2);
+  assert.equal(exportPayload(clean, '2026-10-23T00:00:00.000Z').version, 3);
+  const paybackOff = normalizeData({
+    settings: { monthlyCap: 400, overspendPayback: false, trackingStart: '2026-10' },
+    purchases: [],
+    wishlist: []
+  }, '2026-10');
+  assert.equal(paybackOff.settings.overspendPayback, false);
 
   const legacyStore = memory();
   legacyStore.setItem(STORAGE_KEY, JSON.stringify({
@@ -303,8 +358,9 @@ test('storage defaults, import, and corrupt files', () => {
   assert.equal(migrated.data.purchases[0].notes, 'window');
   assert.equal(migrated.data.purchases[0].boughtAs, 'new');
   assert.equal(migrated.data.purchases[0].status, 'received');
-  assert.equal(migrated.data.purchases[0].mood, 'excited');
+  assert.equal(migrated.data.purchases[0].mood, undefined);
   assert.equal(migrated.data.purchases[0].price, 80);
+  assert.equal(migrated.data.settings.overspendPayback, true);
   const rewritten = JSON.parse(legacyStore.getItem(STORAGE_KEY));
   assert.equal(rewritten.purchases[0].notes, 'window');
   assert.equal(rewritten.purchases[0].note, undefined);
@@ -314,7 +370,8 @@ test('storage defaults, import, and corrupt files', () => {
   const broken = load('2026-10', store);
   assert.equal(broken.corrupt, true);
   assert.equal(store.getItem(STORAGE_KEY), '{');
-  assert.equal(emptyData('2026-11').settings.waitHours, 0);
+  assert.equal(emptyData('2026-11').settings.overspendPayback, true);
+  assert.equal(emptyData('2026-11').settings.waitHours, undefined);
   assert.equal(emptyData('2026-11').settings.syncUrl, '');
   assert.deepEqual(emptyData('2026-11').forSale, []);
 });

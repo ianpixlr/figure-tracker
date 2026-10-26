@@ -1,6 +1,6 @@
 # Figure Cap
 
-A phone-friendly monthly cap for figure collecting. Purchases, the wishlist, and figures for sale stay in this browser. The cap starts at **RM 400.00** and always uses ringgit, even when you type a price in another currency.
+A phone-friendly collection log for figures, with a simple ringgit-left bar. Purchases, the wishlist, and figures for sale stay in this browser. The cap starts at **RM 400.00** and always uses ringgit, even when you type a price in another currency.
 
 The site is published from the `main` branch at <https://ianpixlr.github.io/figure-tracker/>.
 
@@ -25,13 +25,14 @@ After the first load the shell also works offline. A sheet sync needs a connecti
 
 ## Using it
 
-- **Home** shows what is left this month in Malaysia time, what you have spent, and the year to date. The bar marks progress against the cap. When the cap is used up it says: "Month done, next purchase waits for the 1st".
-- **Log** records a figure. The date defaults to today and can be changed for past buys. Name and price are required. Series, brand, type, condition, shop, status, and notes are optional. A pre-order counts in the month you pay, at the full ringgit price. Entries can be filtered by month, year, brand, and series, with a total for each type. Edit and delete are on each entry.
-- **Wishlist** items need a name and a price. Priority starts at Really want. Each item shows whether it fits this month. Remove is one tap, with undo. **Plan the month** adds up the figures you pick.
+- **Home** shows what is left this month in Malaysia time, a bar against the cap, the latest purchase, balances still due on open pre-orders, and the year to date. When the cap is used up it says: "Month done, next purchase waits for the 1st".
+- **Log** is the collection. The date defaults to today and can be changed for past buys. Name and price are required. Series, brand, type, condition, shop, status, and notes sit under More details. Search plus one Filter button narrows entries by month, year, brand, and series. Edit and delete are on each entry.
+- A **pre-order** asks for an estimated full price, the deposit, and the deposit date. Balance due is the estimate minus the deposit. **Pay balance** records the amount you actually paid and the date. The deposit counts in the month it was paid. The balance counts in the month it was paid. Home adds up balances still due.
+- **Wishlist** items need a name and a price. Priority starts at Really want. Each item shows whether it fits this month. Remove is one tap, with undo. **Plan the month** adds up the figures you pick against the adjusted cap.
 - **Sell** lists a figure with its condition (MISB, MIB, BIB, or Loose), asking price, and notes. Mark it sold with the sold price and date. Price checks typed into the sheet show on the card. Until a check exists, the card says "No price check yet."
-- **Settings** holds the cap, an optional rollover (off by default), an optional cooling-off wait (0 hours by default), the sheet address, and JSON export / import.
+- **Settings** holds the cap, unused rollover (off by default), overspend payback (on by default), the sheet address, and JSON export / import.
 
-You can save a purchase that goes past the cap. Home will show that the month is over.
+You can save a purchase that goes past the cap. Home will show that the month is over. With payback on, that overspend lowers only the next month's cap, and the cap does not go below RM 0.00. Home says so in the line under the amount, for example `left of RM 340.00 · RM 60.00 from October's overspend`. Turning payback off leaves later months at the base cap. Rollover, when on, adds only the previous month's unused amount. The two do not stack on the same previous month.
 
 ## Currencies
 
@@ -59,7 +60,11 @@ The phone keeps the local copy. Each add, edit, and delete is queued and sent wh
 
 ### Column headers
 
-Purchases: `id`, `date`, `name`, `series`, `brand`, `type`, `bought_as`, `condition`, `original_amount`, `currency`, `fx_rate`, `fx_date`, `amount_rm`, `fx_overridden`, `fx_cached`, `shop`, `status`, `notes`, `mood`, `created_at`, `updated_at`
+Purchases: `id`, `date`, `name`, `series`, `brand`, `type`, `bought_as`, `condition`, `original_amount`, `currency`, `fx_rate`, `fx_date`, `amount_rm`, `fx_overridden`, `fx_cached`, `shop`, `status`, `notes`, `est_full_original_amount`, `est_full_currency`, `est_full_fx_rate`, `est_full_fx_date`, `est_full_price`, `est_full_fx_overridden`, `est_full_fx_cached`, `deposit_original_amount`, `deposit_currency`, `deposit_fx_rate`, `deposit_fx_date`, `deposit_amount_rm`, `deposit_fx_overridden`, `deposit_fx_cached`, `deposit_date`, `balance_due_rm`, `balance_paid_original_amount`, `balance_paid_currency`, `balance_paid_fx_rate`, `balance_paid_fx_date`, `balance_paid_rm`, `balance_paid_fx_overridden`, `balance_paid_fx_cached`, `balance_paid_date`, `final_total_rm`, `preorder_status`, `created_at`, `updated_at`
+
+`preorder_status` is `deposit paid` or `fully paid`. An older pre-order that only had one price is treated as fully paid on that date. The sheet no longer has a `mood` column; opening the script drops that column if it is still there.
+
+The copy at `apps-script/Code.gs` is the script to paste. The live web app does not pick up this file until you paste it and deploy a new version (Execute as **Me**, Who has access: **Anyone**).
 
 Wishlist: `id`, `name`, `original_amount`, `currency`, `fx_rate`, `fx_date`, `amount_rm`, `fx_overridden`, `fx_cached`, `priority`, `added_at`, `updated_at`
 
