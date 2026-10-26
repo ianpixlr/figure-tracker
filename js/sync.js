@@ -12,6 +12,7 @@ export const SYNC_TOKEN = 'fc-sync-4e91c7b2';
 
 export const QUEUE_KEY = 'figure-cap.sync-queue.v1';
 export const CHECKS_KEY = 'figure-cap.price-checks.v1';
+export const LOCAL_CHECKS_KEY = 'figure-cap.price-checks.local.v1';
 const FULL_KEY = 'figure-cap.sync-full.v1';
 
 export const PURCHASE_COLUMNS = [
@@ -29,6 +30,11 @@ export const PURCHASE_COLUMNS = [
 export const WISHLIST_COLUMNS = [
   'id', 'name', 'original_amount', 'currency', 'fx_rate', 'fx_date', 'amount_rm',
   'fx_overridden', 'fx_cached', 'priority', 'added_at', 'updated_at'
+];
+
+export const PRICE_CHECK_COLUMNS = [
+  'for_sale_id', 'figure', 'rrp', 'rrp_source', 'condition',
+  'low_rm', 'typical_rm', 'high_rm', 'listing_count', 'sample_links', 'sources', 'checked_at'
 ];
 
 export const SALE_COLUMNS = [
@@ -153,6 +159,14 @@ export function enqueueDelete(sheet, id) {
   writeQueue(queue);
 }
 
+export function enqueueAppendCheck(row) {
+  const copy = JSON.parse(JSON.stringify(row));
+  delete copy.local_id;
+  const queue = readQueue();
+  queue.push({ op: 'appendCheck', sheet: 'Price Checks', id: '', row: copy });
+  writeQueue(queue);
+}
+
 export function clearQueue() {
   writeQueue([]);
 }
@@ -255,6 +269,23 @@ export function wishRow(item) {
   });
 }
 
+export function priceCheckRow(check) {
+  return ordered(PRICE_CHECK_COLUMNS, {
+    for_sale_id: check.for_sale_id || '',
+    figure: check.figure || '',
+    rrp: check.rrp || '',
+    rrp_source: check.rrp_source || '',
+    condition: check.condition || '',
+    low_rm: cell(check.low_rm),
+    typical_rm: cell(check.typical_rm),
+    high_rm: cell(check.high_rm),
+    listing_count: cell(check.listing_count),
+    sample_links: check.sample_links || '',
+    sources: check.sources || '',
+    checked_at: check.checked_at || ''
+  });
+}
+
 export function saleRow(item) {
   return ordered(SALE_COLUMNS, {
     id: item.id,
@@ -323,13 +354,48 @@ function offline(options) {
   return typeof navigator !== 'undefined' && navigator.onLine === false;
 }
 
-export function cachedPriceChecks() {
+function readList(key) {
   try {
-    const parsed = JSON.parse(db().getItem(CHECKS_KEY) || '[]');
+    const parsed = JSON.parse(db().getItem(key) || '[]');
     return Array.isArray(parsed) ? parsed : [];
   } catch {
     return [];
   }
+}
+
+function checkAmount(value) {
+  if (value === '' || value == null) return '';
+  const number = Number(value);
+  return Number.isFinite(number) ? number : String(value);
+}
+
+function sameCheck(a, b) {
+  return String(a?.for_sale_id || '') === String(b?.for_sale_id || '')
+    && String(a?.checked_at || '') === String(b?.checked_at || '')
+    && checkAmount(a?.low_rm) === checkAmount(b?.low_rm)
+    && checkAmount(a?.typical_rm) === checkAmount(b?.typical_rm)
+    && checkAmount(a?.high_rm) === checkAmount(b?.high_rm);
+}
+
+export function rememberLocalCheck(row) {
+  const local = readList(LOCAL_CHECKS_KEY);
+  local.push(row);
+  db().setItem(LOCAL_CHECKS_KEY, JSON.stringify(local));
+}
+
+export function cachedPriceChecks() {
+  const merged = readList(CHECKS_KEY).slice();
+  for (const row of readList(LOCAL_CHECKS_KEY)) {
+    if (!merged.some((existing) => sameCheck(existing, row))) merged.push(row);
+  }
+  return merged;
+}
+
+function storePulledChecks(checks) {
+  const remote = Array.isArray(checks) ? checks : [];
+  const local = readList(LOCAL_CHECKS_KEY).filter((row) => !remote.some((existing) => sameCheck(existing, row)));
+  db().setItem(CHECKS_KEY, JSON.stringify(remote));
+  db().setItem(LOCAL_CHECKS_KEY, JSON.stringify(local));
 }
 
 export async function pullPriceChecks(settings, options = {}) {
@@ -340,8 +406,8 @@ export async function pullPriceChecks(settings, options = {}) {
   const payload = JSON.parse(await response.text());
   if (!payload || payload.ok === false) throw new Error(payload?.error || 'sync failed');
   const checks = Array.isArray(payload.priceChecks) ? payload.priceChecks : [];
-  db().setItem(CHECKS_KEY, JSON.stringify(checks));
-  return checks;
+  storePulledChecks(checks);
+  return cachedPriceChecks();
 }
 
 export async function flushQueue(getData, options = {}) {
@@ -363,20 +429,8 @@ export async function flushQueue(getData, options = {}) {
     return { ok: true };
   }
   setPhase('syncing');
-  for (const op of queue) {
-    const body = op.op === 'delete'
-      ? { action: 'delete', sheet: op.sheet, id: op.id }
-      : { action: 'upsert', sheet: op.sheet, row: op.row };
-    try {
-      const result = await postJson(url, body, options.fetchImpl);
-      if (!result || result.ok === false) throw new Error(result?.error || 'sync failed');
-      const key = opKey(op);
-      writeQueue(readQueue().filter((item) => opKey(item) !== key));
-    } catch {
-      setPhase(offline(options) ? 'offline' : 'error');
-      return { ok: false };
-    }
-  }
+  const posted = await postQueued(url, options);
+  if (!posted.ok) return posted;
   if (!readQueue().length) {
     try {
       await pullPriceChecks(data.settings, options);
@@ -386,6 +440,27 @@ export async function flushQueue(getData, options = {}) {
   }
   setPhase(readQueue().length ? 'error' : 'idle');
   return { ok: readQueue().length === 0 };
+}
+
+function postBody(op) {
+  if (op.op === 'delete') return { action: 'delete', sheet: op.sheet, id: op.id };
+  if (op.op === 'appendCheck') return { action: 'appendCheck', row: op.row };
+  return { action: 'upsert', sheet: op.sheet, row: op.row };
+}
+
+async function postQueued(url, options) {
+  for (const op of readQueue()) {
+    try {
+      const result = await postJson(url, postBody(op), options.fetchImpl);
+      if (!result || result.ok === false) throw new Error(result?.error || 'sync failed');
+      const key = opKey(op);
+      writeQueue(readQueue().filter((item) => opKey(item) !== key));
+    } catch {
+      setPhase(offline(options) ? 'offline' : 'error');
+      return { ok: false };
+    }
+  }
+  return { ok: true };
 }
 
 export async function syncAllNow(data, options = {}) {
@@ -405,7 +480,9 @@ export async function syncAllNow(data, options = {}) {
     const result = await postJson(url, syncAllBody(data), options.fetchImpl);
     if (!result || result.ok === false) throw new Error(result?.error || 'sync failed');
     clearFull();
-    writeQueue(readQueue().filter((op) => !before.has(opKey(op))));
+    writeQueue(readQueue().filter((op) => op.op === 'appendCheck' || !before.has(opKey(op))));
+    const posted = await postQueued(url, options);
+    if (!posted.ok) return posted;
     try {
       await pullPriceChecks(data.settings, options);
     } catch {

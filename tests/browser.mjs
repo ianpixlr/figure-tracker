@@ -28,16 +28,20 @@ async function bodyText(page) {
 
 async function shot(page, name, focus) {
   await page.evaluate((selector) => {
-    if (!selector) {
+    const pinBottom = selector.startsWith('bottom:');
+    const query = pinBottom ? selector.slice('bottom:'.length) : selector;
+    if (!query) {
       window.scrollTo(0, 0);
       return;
     }
-    const el = document.querySelector(selector);
+    const el = document.querySelector(query);
     if (!el) {
       window.scrollTo(0, 0);
       return;
     }
-    const top = el.getBoundingClientRect().top + window.scrollY - 72;
+    const top = pinBottom
+      ? el.getBoundingClientRect().bottom + window.scrollY - window.innerHeight + 96
+      : el.getBoundingClientRect().top + window.scrollY - 72;
     window.scrollTo(0, Math.max(0, top));
   }, focus || '');
   await page.screenshot({ path: `${SHOTS}/${name}.png` });
@@ -270,6 +274,7 @@ async function main() {
   await mkdir(SHOTS, { recursive: true });
   const external = [];
   const errors = [];
+  let fxDown = false;
   const browser = await puppeteer.launch({
     executablePath: '/usr/local/bin/google-chrome',
     headless: true,
@@ -299,6 +304,15 @@ async function main() {
         return;
       }
       if (url.includes('api.frankfurter.app') || url.includes('open.er-api.com')) {
+        if (fxDown) {
+          request.respond({
+            status: 200,
+            contentType: 'application/json',
+            headers: { 'Access-Control-Allow-Origin': '*' },
+            body: JSON.stringify({ rates: {} })
+          });
+          return;
+        }
         const dated = url.match(/(\d{4}-\d{2}-\d{2})/);
         request.respond({
           status: 200,
@@ -485,15 +499,32 @@ async function main() {
     await page.waitForFunction(() => document.body.innerText.includes('No price check yet.'));
     assert.match(await bodyText(page), /MISB/);
     assert.match(await bodyText(page), /RM 70\.00/);
+    const caro = await page.$eval('article a[href*="carousell.com.my"]', (el) => el.getAttribute('href'));
+    const rrp = await page.$eval('article a[href*="google.com/search"]', (el) => el.getAttribute('href'));
+    assert.equal(caro, `https://www.carousell.com.my/search/${encodeURIComponent('Mari MISB')}`);
+    assert.equal(rrp, `https://www.google.com/search?q=${encodeURIComponent('Mari RRP')}`);
+    assert.equal(await page.$eval('article input[name="source"]', (el) => el.value), 'Carousell');
+    await typeInto(page, 'article input[name="low"]', '40');
+    await typeInto(page, 'article input[name="typical"]', '55');
+    await typeInto(page, 'article input[name="high"]', '80');
+    await typeInto(page, 'article input[name="rrp"]', 'RM 90');
+    await press(page, 'article [data-check-form] button[type="submit"]');
+    await page.waitForFunction(() => {
+      const text = document.body.innerText;
+      return text.includes('RM 40.00') && text.includes('RM 55.00') && text.includes('RM 80.00') && text.includes('Carousell');
+    });
     await assertTypeScale(page);
     await assertAlignment(page);
     await shot(page, 'sell');
+    await shot(page, 'sell-check', 'article.block');
     await assertNoOverflow(page);
     await press(page, 'a[href^="#edit-sale/"]');
     await page.waitForSelector('#sale-form');
+    await page.waitForFunction(() => document.body.innerText.includes('RM 40.00'));
     await assertTypeScale(page);
     await assertAlignment(page);
     await shot(page, 'sell-edit');
+    await shot(page, 'sell-check-edit', 'bottom:.check-form button[type="submit"]');
 
     await go(page, '#settings', '#field-cap');
     await assertTypeScale(page);
@@ -591,6 +622,24 @@ async function main() {
     ));
     assert.deepEqual(unexpected, []);
     assert.ok(external.some((url) => url.includes('script.google.com')));
+
+    fxDown = true;
+    await page.evaluate(() => localStorage.removeItem('figure-cap.fx.v1'));
+    await go(page, '#log', '#field-name');
+    await typeInto(page, '#field-name', 'Offline yen');
+    await page.select('#field-price-currency', 'USD');
+    await typeInto(page, '#field-price', '10');
+    await page.waitForFunction(() => /Rate unavailable/.test(document.querySelector('[data-fx-hint]')?.textContent || ''));
+    await clickLabel(page, 'Use statement amount');
+    await page.waitForSelector('#field-price-rm');
+    await typeInto(page, '#field-price-rm', '25');
+    await press(page, '#log-form button[type="submit"]');
+    await page.waitForFunction(() => {
+      const data = JSON.parse(localStorage.getItem('figure-cap.v1') || '{}');
+      const item = data.purchases?.find((purchase) => purchase.name === 'Offline yen');
+      return item?.price === 25 && item.fxOverridden === true;
+    });
+    fxDown = false;
 
     await page.emulateMediaFeatures([{ name: 'prefers-color-scheme', value: 'dark' }]);
     await page.reload({ waitUntil: 'networkidle0' });

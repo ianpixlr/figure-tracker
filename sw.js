@@ -1,6 +1,6 @@
 // Offline shell for Figure Cap. Records stay in localStorage, not in this cache.
 
-const CACHE = 'figure-cap-v5';
+const CACHE = 'figure-cap-v6';
 const ASSETS = [
   './index.html',
   './styles.css',

@@ -8,12 +8,16 @@ import {
   SALE_COLUMNS,
   SYNC_TOKEN,
   WISHLIST_COLUMNS,
+  PRICE_CHECK_COLUMNS,
   cachedPriceChecks,
+  enqueueAppendCheck,
   enqueueDelete,
   enqueueUpsert,
   flushQueue,
   isConfiguredUrl,
+  priceCheckRow,
   purchaseRow,
+  rememberLocalCheck,
   resolveSyncUrl,
   readQueue,
   resetSyncForTests,
@@ -251,4 +255,48 @@ test('posts are text/plain and a full sync does not send price checks', async ()
   assert.equal(posted.priceChecks, undefined);
   assert.deepEqual(syncAllBody(data).purchases[0].currency, 'JPY');
   assert.equal(syncStatusLabel(), 'Synced');
+});
+
+test('a manual price check appends to Price Checks and stays on the phone', async () => {
+  resetSyncForTests();
+  const calls = [];
+  const fetchImpl = async (url, init = {}) => {
+    calls.push({ url, init });
+    if (init.method === 'GET') {
+      return { ok: true, text: async () => JSON.stringify({ ok: true, priceChecks: [] }) };
+    }
+    return { ok: true, text: async () => JSON.stringify({ ok: true }) };
+  };
+  const row = priceCheckRow({
+    for_sale_id: 's1',
+    figure: 'Mari',
+    condition: 'MISB',
+    rrp: 'RM 90',
+    rrp_source: 'Carousell',
+    low_rm: 40,
+    typical_rm: 55,
+    high_rm: 80,
+    sources: 'Carousell',
+    checked_at: '2026-10-26 11:00'
+  });
+  assert.deepEqual(Object.keys(row), PRICE_CHECK_COLUMNS);
+  assert.deepEqual(Object.keys(row), headers('Price Checks'));
+  assert.equal(row.listing_count, '');
+  assert.equal(row.sample_links, '');
+  rememberLocalCheck(row);
+  enqueueAppendCheck(row);
+  const data = { settings: { syncUrl: 'https://example.com/exec' }, purchases: [], wishlist: [], forSale: [] };
+  const flushed = await flushQueue(() => data, { fetchImpl, online: true });
+  assert.equal(flushed.ok, true);
+  const posted = JSON.parse(calls.find((call) => call.init.method === 'POST').init.body);
+  assert.equal(posted.action, 'appendCheck');
+  assert.equal(posted.row.low_rm, 40);
+  assert.equal(posted.row.typical_rm, 55);
+  assert.equal(posted.row.high_rm, 80);
+  assert.equal(posted.row.sources, 'Carousell');
+  assert.equal(posted.row.rrp, 'RM 90');
+  assert.equal(posted.row.for_sale_id, 's1');
+  assert.equal(posted.sheet, undefined);
+  assert.equal(cachedPriceChecks()[0].low_rm, 40);
+  assert.match(script, /body\.action === 'appendCheck'/);
 });

@@ -104,6 +104,13 @@ function doPost(e) {
       syncTable(ss, 'For Sale', body.forSale || []);
       return json({ ok: true });
     }
+    // Price Checks has no id column, so upsert cannot write it. Append only.
+    // This action is new: redeploy the web app or the phone cannot save a check to the sheet.
+    if (body.action === 'appendCheck') {
+      var checks = repairSheet(ss, 'Price Checks', SHEETS['Price Checks']);
+      appendCheckRow(checks.sheet, checks.headers, body.row || {});
+      return json({ ok: true });
+    }
     if (!WRITABLE[body.sheet]) return json({ ok: false, error: 'sheet not writable' });
     var repaired = repairSheet(ss, body.sheet, SHEETS[body.sheet]);
     if (body.action === 'delete') {
@@ -227,6 +234,14 @@ function upsertRow(sheet, headers, row) {
   if (idIndex === -1) throw new Error('missing id column');
   var line = findRow(sheet, idIndex, row.id);
   if (!line) line = Math.max(sheet.getLastRow(), 1) + 1;
+  headers.forEach(function (header, index) {
+    if (!Object.prototype.hasOwnProperty.call(row, header)) return;
+    sheet.getRange(line, index + 1).setValue(outgoing(header, row[header]));
+  });
+}
+
+function appendCheckRow(sheet, headers, row) {
+  var line = Math.max(sheet.getLastRow(), 1) + 1;
   headers.forEach(function (header, index) {
     if (!Object.prototype.hasOwnProperty.call(row, header)) return;
     sheet.getRange(line, index + 1).setValue(outgoing(header, row[header]));

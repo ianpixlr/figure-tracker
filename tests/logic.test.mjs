@@ -16,7 +16,7 @@ import {
   wishlistModel,
   yearSpent
 } from '../js/budget.js';
-import { categoryTotals, filterPurchases, latestPriceCheck } from '../js/catalog.js';
+import { carousellSearchUrl, categoryTotals, filterPurchases, latestPriceCheck, rrpSearchUrl } from '../js/catalog.js';
 import { formatRM, parseMoney } from '../js/money.js';
 import {
   emptyData,
@@ -403,4 +403,9 @@ test('filters, category totals, and the latest price check', () => {
   assert.equal(byName.typical_rm, 55);
   assert.equal(latestPriceCheck({ id: 'x', name: 'Nope', condition: 'MIB' }, checks), null);
   assert.equal(latestPriceCheck(listing, []), null);
+  assert.equal(
+    carousellSearchUrl('Asuka Langley', 'MISB'),
+    `https://www.carousell.com.my/search/${encodeURIComponent('Asuka Langley MISB')}`
+  );
+  assert.equal(rrpSearchUrl('Asuka Langley'), `https://www.google.com/search?q=${encodeURIComponent('Asuka Langley RRP')}`);
 });

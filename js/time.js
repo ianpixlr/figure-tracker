@@ -21,6 +21,24 @@ export function setNow(value) {
   return now();
 }
 
+export function todayStamp(date = now()) {
+  const fmt = new Intl.DateTimeFormat('en-GB', {
+    timeZone: TZ,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hourCycle: 'h23'
+  });
+  const parts = Object.fromEntries(
+    fmt.formatToParts(date)
+      .filter((part) => part.type !== 'literal')
+      .map((part) => [part.type, part.value])
+  );
+  return `${parts.year}-${parts.month}-${parts.day} ${parts.hour}:${parts.minute}`;
+}
+
 export function todayYMD(date = now()) {
   const fmt = new Intl.DateTimeFormat('en-CA', {
     timeZone: TZ,

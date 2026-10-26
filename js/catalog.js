@@ -150,3 +150,12 @@ export function latestPriceCheck(item, checks) {
 export function priceCheckAmount(value) {
   return parseMoney(value);
 }
+
+export function carousellSearchUrl(name, condition) {
+  const query = [name, condition].map((part) => String(part || '').trim()).filter(Boolean).join(' ');
+  return `https://www.carousell.com.my/search/${encodeURIComponent(query)}`;
+}
+
+export function rrpSearchUrl(name) {
+  return `https://www.google.com/search?q=${encodeURIComponent(`${String(name || '').trim()} RRP`)}`;
+}

@@ -717,6 +717,38 @@ button:disabled { opacity: 0.45; cursor: not-allowed; }
   margin-top: 12px;
 }
 
+.search-pills {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.search-pills .btn {
+  width: auto;
+  flex: 0 1 auto;
+  padding: 0 14px;
+  text-transform: none;
+  white-space: nowrap;
+}
+
+.check { margin-top: 12px; }
+
+.check-empty { margin-top: 4px; color: var(--muted); }
+
+.check-form {
+  display: grid;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.check-prices {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
 .chart-row { margin-top: 12px; }
 
 .chart-top, .item-top, .pick-top, .month-head {

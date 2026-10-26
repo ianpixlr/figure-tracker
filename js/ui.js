@@ -21,6 +21,7 @@ import {
   SALE_CONDITIONS,
   SALE_STATUSES,
   boughtAsLabel,
+  carousellSearchUrl,
   categoryTotals,
   distinctValues,
   figureAmount,
@@ -28,6 +29,7 @@ import {
   filterPurchases,
   latestPriceCheck,
   preorderStatusLabel,
+  rrpSearchUrl,
   priceCheckAmount,
   purchaseStatusLabel,
   saleStatusLabel
@@ -60,12 +62,15 @@ import {
   DEFAULT_SYNC_URL,
   cachedPriceChecks,
   clearQueue,
+  enqueueAppendCheck,
   enqueueDelete,
   enqueueUpsert,
   isConfiguredUrl,
   kickSync,
+  priceCheckRow,
   pullPriceChecks,
   purchaseRow,
+  rememberLocalCheck,
   resolveSyncUrl,
   saleRow,
   subscribe,
@@ -82,6 +87,7 @@ import {
   formatToday,
   isYMD,
   now,
+  todayStamp,
   todayYMD
 } from './time.js';
 
@@ -826,7 +832,7 @@ function saleForm(item) {
       <p class="form-error" role="alert" hidden></p>
       <button class="btn btn-primary" type="submit">${editing ? 'Save listing' : 'Add listing'}</button>
     </form>
-    ${editing ? `<div class="check" data-check-for="${esc(item.id)}">${priceCheckInner(item, cachedPriceChecks())}</div>` : ''}
+    ${editing ? `<div class="panel">${saleResearch(item)}</div>` : ''}
     ${editing ? `<button class="btn danger" type="button" data-action="delete-sale" data-id="${esc(item.id)}">Delete listing</button>` : ''}
   `;
 }
@@ -851,7 +857,7 @@ function saleCard(item, index) {
       ${foreign ? `<p class="meta" data-edge>${esc(foreign)}</p>` : ''}
       ${item.status === 'sold' ? `<p class="meta" data-edge>Sold ${item.soldPrice != null ? formatRM(item.soldPrice) : ''}${item.soldDate ? ` · ${esc(formatDay(item.soldDate))}` : ''}${soldForeign ? ` · ${esc(soldForeign)}` : ''}</p>` : ''}
       ${item.notes ? `<p class="note" data-edge>${esc(item.notes)}</p>` : ''}
-      <div class="check" data-check-for="${esc(item.id)}">${priceCheckInner(item, cachedPriceChecks())}</div>
+      ${saleResearch(item)}
       <div class="btn-row">
         <a class="btn btn-ghost" href="#edit-sale/${encodeURIComponent(item.id)}">Edit</a>
         <button class="btn btn-ghost" type="button" data-action="delete-sale" data-id="${esc(item.id)}">Delete</button>
@@ -860,24 +866,68 @@ function saleCard(item, index) {
   `;
 }
 
+function searchPills(item) {
+  return `
+    <div class="search-pills" data-edge>
+      <a class="btn btn-primary" href="${esc(carousellSearchUrl(item.name, item.condition))}" target="_blank" rel="noopener noreferrer">Search Carousell</a>
+      <a class="btn btn-primary" href="${esc(rrpSearchUrl(item.name))}" target="_blank" rel="noopener noreferrer">Search RRP</a>
+    </div>
+  `;
+}
+
+function saleResearch(item) {
+  return `
+    ${searchPills(item)}
+    <div class="check" data-check-for="${esc(item.id)}">${priceCheckInner(item, cachedPriceChecks())}</div>
+    ${priceCheckForm(item)}
+  `;
+}
+
+function priceCheckForm(item) {
+  return `
+    <form class="check-form" data-check-form data-sale-id="${esc(item.id)}" novalidate>
+      <div class="check-prices" data-edge>
+        <label class="field">Low
+          <input name="low" inputmode="decimal" autocomplete="off" placeholder="0.00" aria-label="Low price">
+        </label>
+        <label class="field">Typical
+          <input name="typical" inputmode="decimal" autocomplete="off" placeholder="0.00" aria-label="Typical price">
+        </label>
+        <label class="field">High
+          <input name="high" inputmode="decimal" autocomplete="off" placeholder="0.00" aria-label="High price">
+        </label>
+      </div>
+      <label class="field" data-edge>RRP
+        <input name="rrp" maxlength="80" autocomplete="off" placeholder="Optional" aria-label="RRP">
+      </label>
+      <label class="field" data-edge>Source
+        <input name="source" maxlength="80" autocomplete="off" value="Carousell" aria-label="Source">
+      </label>
+      <p class="form-error" role="alert" hidden></p>
+      <button class="btn btn-primary" type="submit">Save price check</button>
+    </form>
+  `;
+}
+
 function priceCheckInner(item, checks) {
   const check = latestPriceCheck(item, checks);
-  if (!check) return '<p class="spec-label">Price check</p><p class="check-empty">No price check yet.</p>';
+  if (!check) return '<p class="spec-label" data-edge>Price check</p><p class="check-empty" data-edge>No price check yet.</p>';
   const rrp = String(check.rrp || '').trim();
-  const source = String(check.rrp_source || '').trim();
-  const listings = check.listing_count === '' || check.listing_count == null ? '—' : String(check.listing_count);
+  const rrpSource = String(check.rrp_source || '').trim();
+  const market = String(check.sources || '').trim();
+  const listings = check.listing_count === '' || check.listing_count == null ? '' : String(check.listing_count);
   return `
-    <p class="spec-label">Price check</p>
-    <div class="spec-grid">
+    <p class="spec-label" data-edge>Price check</p>
+    <div class="spec-grid" data-edge>
       <div><p class="spec-label">Low</p><p class="spec-value">${rmOrDash(check.low_rm)}</p></div>
       <div><p class="spec-label">Typical</p><p class="spec-value">${rmOrDash(check.typical_rm)}</p></div>
       <div><p class="spec-label">High</p><p class="spec-value">${rmOrDash(check.high_rm)}</p></div>
-      <div><p class="spec-label">Listings</p><p class="spec-value">${esc(listings)}</p></div>
+      ${listings ? `<div><p class="spec-label">Listings</p><p class="spec-value">${esc(listings)}</p></div>` : ''}
     </div>
-    ${rrp ? `<p class="meta">RRP ${esc(rrp)}${source ? ` · ${esc(source)}` : ''}</p>` : ''}
-    ${check.sources ? `<p class="meta">${esc(check.sources)}</p>` : ''}
+    ${rrp ? `<p class="meta" data-edge>RRP ${esc(rrp)}${rrpSource && rrpSource !== market ? ` · ${esc(rrpSource)}` : ''}</p>` : ''}
+    ${market ? `<p class="meta" data-edge>${esc(market)}</p>` : ''}
     ${linkList(check.sample_links)}
-    ${check.checked_at ? `<p class="meta">Checked ${esc(check.checked_at)}</p>` : ''}
+    ${check.checked_at ? `<p class="meta" data-edge>Checked ${esc(check.checked_at)}</p>` : ''}
   `;
 }
 
@@ -1082,6 +1132,7 @@ async function onSubmit(event) {
     if (form.id === 'log-form' || form.id === 'edit-form') await savePurchase(form, form.dataset.id || '');
     if (form.id === 'wish-form') await addWish(form);
     if (form.id === 'sale-form') await saveSale(form, form.dataset.id || '');
+    if (form.matches('[data-check-form]')) savePriceCheck(form);
     if (form.id === 'settings-form') await saveSettings(form);
   } finally {
     saving = false;
@@ -1689,6 +1740,60 @@ async function saveSale(form, id) {
   kickSync(syncSource);
   showToast(existing ? 'Listing updated.' : `Listed ${item.name}.`);
   go('#sell');
+}
+
+function savePriceCheck(form) {
+  clearFormError(form);
+  const loaded = currentData();
+  if (loaded.corrupt) return;
+  const item = loaded.data.forSale.find((sale) => sale.id === form.dataset.saleId);
+  if (!item) {
+    showFormError(form, 'That listing is no longer here.');
+    return;
+  }
+  const amounts = {};
+  for (const name of ['low', 'typical', 'high']) {
+    const raw = fieldValue(form, name).trim();
+    if (!raw) {
+      amounts[name] = '';
+      continue;
+    }
+    const parsed = parseMoney(raw);
+    if (parsed == null || parsed <= 0) {
+      showFormError(form, 'Enter prices in ringgit.');
+      return;
+    }
+    if (parsed > MAX_MONEY) {
+      showFormError(form, `Enter a price of ${formatRM(MAX_MONEY)} or less.`);
+      return;
+    }
+    amounts[name] = parsed;
+  }
+  if (amounts.low === '' && amounts.typical === '' && amounts.high === '') {
+    showFormError(form, 'Enter a low, typical, or high price.');
+    return;
+  }
+  const rrp = fieldValue(form, 'rrp').trim().slice(0, 80);
+  const source = fieldValue(form, 'source').trim().slice(0, 80) || 'Carousell';
+  const row = priceCheckRow({
+    for_sale_id: item.id,
+    figure: item.name,
+    condition: item.condition,
+    rrp,
+    rrp_source: rrp ? source : '',
+    low_rm: amounts.low,
+    typical_rm: amounts.typical,
+    high_rm: amounts.high,
+    listing_count: '',
+    sample_links: '',
+    sources: source,
+    checked_at: todayStamp()
+  });
+  rememberLocalCheck(row);
+  enqueueAppendCheck(row);
+  kickSync(syncSource);
+  showToast('Price check saved.');
+  render();
 }
 
 async function saveSettings(form) {
