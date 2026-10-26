@@ -393,6 +393,12 @@ a { color: inherit; }
 
 .stack, .month-group { display: grid; gap: 10px; }
 
+.month-group { margin-top: 32px; }
+
+.item-top h3 { margin: 0; }
+
+#chart { margin-bottom: 10px; }
+
 .stack > *,
 .panel,
 .block,
@@ -560,6 +566,8 @@ html[data-mode="dark"] .block {
   font-weight: 400;
   letter-spacing: -0.03em;
 }
+
+#category-totals .spec-label { font-weight: 700; }
 
 .chips {
   display: flex;
@@ -1069,6 +1077,22 @@ button:disabled { opacity: 0.45; cursor: not-allowed; }
 }
 
 .chart-row { margin-top: 12px; }
+
+.text-btn {
+  display: inline-flex;
+  align-items: center;
+  min-height: 47px;
+  margin: 4px 0 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--ink);
+  font: inherit;
+  font-weight: 400;
+  letter-spacing: 0;
+  text-transform: none;
+  cursor: pointer;
+}
 
 .chart-top, .item-top, .pick-top, .month-head {
   display: flex;

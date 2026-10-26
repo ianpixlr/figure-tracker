@@ -2357,6 +2357,141 @@ async function main() {
     await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
     await assertNavOnScreen(page, 8);
 
+    await page.evaluate(() => {
+      const buy = (id, name, date, price, figureType) => ({
+        id,
+        name,
+        date,
+        price,
+        boughtAs: 'purchased',
+        status: 'received',
+        figureType,
+        originalAmount: price,
+        currency: 'MYR',
+        fxRate: 1,
+        createdAt: `${date}T00:00:00.000Z`,
+        updatedAt: `${date}T00:00:00.000Z`
+      });
+      localStorage.setItem('figure-cap.theme', 'light');
+      document.documentElement.dataset.mode = 'light';
+      document.documentElement.dataset.theme = 'light';
+      localStorage.setItem('figure-cap.v1', JSON.stringify({
+        settings: { monthlyCap: 400, rollover: false, overspendPayback: true, trackingStart: '2026-06', syncUrl: '' },
+        purchases: [
+          buy('jun', 'June figure', '2026-06-04', 40, '1-6'),
+          buy('jul', 'July figure', '2026-07-04', 50, '1-12'),
+          buy('aug', 'August figure', '2026-08-04', 60, 'model-kit'),
+          buy('sep', 'September figure', '2026-09-04', 70, 'transformers'),
+          buy('oct', 'October figure', '2026-10-04', 80, 'other')
+        ],
+        wishlist: [],
+        forSale: []
+      }));
+      location.hash = '#entries';
+      window.__figureCap.setNow('2026-10-26T04:00:00Z');
+    });
+    await page.waitForSelector('#chart .chart-row');
+    const collapsed = await page.evaluate(() => {
+      const labels = [...document.querySelectorAll('#chart .chart-top span:first-child')].map((el) => el.textContent.trim());
+      const toggle = document.querySelector('[data-action="toggle-chart"]');
+      const chart = document.getElementById('chart');
+      const types = document.getElementById('category-totals');
+      const group = document.querySelector('.month-group');
+      const header = group.querySelector('.item-top');
+      const card = group.querySelector('article');
+      const label = types.querySelector('.spec-label');
+      const amount = types.querySelector('.stat-v');
+      return {
+        labels,
+        toggle: toggle ? toggle.textContent.trim() : '',
+        expanded: toggle?.getAttribute('aria-expanded') || '',
+        gap: types.getBoundingClientRect().top - chart.getBoundingClientRect().bottom,
+        above: group.getBoundingClientRect().top - types.getBoundingClientRect().bottom,
+        below: card.getBoundingClientRect().top - header.getBoundingClientRect().bottom,
+        nameWeight: getComputedStyle(label).fontWeight,
+        amountWeight: getComputedStyle(amount).fontWeight,
+        nameSize: getComputedStyle(label).fontSize,
+        amountSize: getComputedStyle(amount).fontSize,
+        toggleSize: getComputedStyle(toggle).fontSize
+      };
+    });
+    assert.deepEqual(collapsed.labels, ['Aug 2026', 'Sept 2026', 'Oct 2026']);
+    assert.equal(collapsed.toggle, 'Show all');
+    assert.equal(collapsed.expanded, 'false');
+    assert.ok(collapsed.gap >= 8 && collapsed.gap <= 14, JSON.stringify(collapsed));
+    assert.ok(collapsed.above >= 30 && collapsed.above <= 36, JSON.stringify(collapsed));
+    assert.ok(collapsed.below >= 8 && collapsed.below <= 14, JSON.stringify(collapsed));
+    assert.ok(collapsed.nameWeight === '700' || collapsed.nameWeight === 'bold', JSON.stringify(collapsed));
+    assert.ok(collapsed.amountWeight === '400' || collapsed.amountWeight === 'normal', JSON.stringify(collapsed));
+    assert.equal(collapsed.nameSize, '15px');
+    assert.equal(collapsed.amountSize, '15px');
+    assert.equal(collapsed.toggleSize, '15px');
+    await page.evaluate(() => {
+      const scroller = document.getElementById('main');
+      const chart = document.getElementById('chart');
+      const origin = scroller.getBoundingClientRect().top;
+      scroller.scrollTop = Math.max(0, chart.getBoundingClientRect().top - origin + scroller.scrollTop - 8);
+    });
+    await assertTypeScale(page);
+    await assertNoOverflow(page);
+    await page.screenshot({ path: `${REPORTS}/log-months-collapsed.png` });
+    await press(page, '[data-action="toggle-chart"]');
+    await page.waitForFunction(() => document.querySelector('[data-action="toggle-chart"]')?.textContent.trim() === 'Show less');
+    const expanded = await page.evaluate(() => ({
+      labels: [...document.querySelectorAll('#chart .chart-top span:first-child')].map((el) => el.textContent.trim()),
+      toggle: document.querySelector('[data-action="toggle-chart"]').textContent.trim(),
+      expanded: document.querySelector('[data-action="toggle-chart"]').getAttribute('aria-expanded')
+    }));
+    assert.deepEqual(expanded.labels, ['Jun 2026', 'Jul 2026', 'Aug 2026', 'Sept 2026', 'Oct 2026']);
+    assert.equal(expanded.toggle, 'Show less');
+    assert.equal(expanded.expanded, 'true');
+    await page.evaluate(() => {
+      const scroller = document.getElementById('main');
+      const chart = document.getElementById('chart');
+      const origin = scroller.getBoundingClientRect().top;
+      scroller.scrollTop = Math.max(0, chart.getBoundingClientRect().top - origin + scroller.scrollTop - 8);
+    });
+    await assertNoOverflow(page);
+    await page.screenshot({ path: `${REPORTS}/log-months-expanded.png` });
+    await page.evaluate(() => {
+      localStorage.setItem('figure-cap.theme', 'dark');
+      document.documentElement.dataset.mode = 'dark';
+      document.documentElement.dataset.theme = 'dark';
+    });
+    await assertNoOverflow(page);
+    await page.screenshot({ path: `${REPORTS}/log-months-expanded-dark.png` });
+    await press(page, '[data-action="toggle-chart"]');
+    await page.waitForFunction(() => document.querySelector('[data-action="toggle-chart"]')?.textContent.trim() === 'Show all');
+    await page.evaluate(() => {
+      localStorage.setItem('figure-cap.v1', JSON.stringify({
+        settings: { monthlyCap: 400, rollover: false, overspendPayback: true, trackingStart: '2026-10', syncUrl: '' },
+        purchases: [{
+          id: 'only',
+          name: 'Only',
+          date: '2026-10-02',
+          price: 20,
+          boughtAs: 'purchased',
+          status: 'received',
+          figureType: '1-6',
+          originalAmount: 20,
+          currency: 'MYR',
+          fxRate: 1,
+          createdAt: '2026-10-02T00:00:00.000Z',
+          updatedAt: '2026-10-02T00:00:00.000Z'
+        }],
+        wishlist: [],
+        forSale: []
+      }));
+      window.__figureCap.setNow('2026-10-26T04:00:00Z');
+    });
+    await page.waitForFunction(() => document.querySelectorAll('#chart .chart-row').length === 1);
+    assert.equal(await page.$('[data-action="toggle-chart"]'), null);
+    await page.evaluate(() => {
+      localStorage.setItem('figure-cap.theme', 'light');
+      document.documentElement.dataset.mode = 'light';
+      document.documentElement.dataset.theme = 'light';
+    });
+
     const sw = await page.evaluate(async () => {
       const reg = await navigator.serviceWorker.ready;
       return Boolean(reg.active);
