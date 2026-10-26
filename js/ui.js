@@ -493,8 +493,8 @@ function purchaseForm(purchase, today, categories = []) {
             </label>
           </div>
           <div class="row">
-            <label class="field" data-edge for="field-name">Figure name
-              <input id="field-name" name="name" maxlength="80" ${typingAttrs('words')} value="${esc(value.name)}" required>
+            <label class="field" data-edge for="fc-item">Figure
+              <input id="fc-item" name="fc_item" maxlength="80" ${typingAttrs('words')} value="${esc(value.name)}" required>
             </label>
           </div>
           <div class="row" data-standard ${preorder ? 'hidden' : ''}>
@@ -1821,7 +1821,7 @@ async function resolveMoney(block) {
 }
 
 function readPurchaseDetails(form) {
-  const name = fieldValue(form, 'name').trim();
+  const name = fieldValue(form, 'fc_item').trim();
   const date = fieldValue(form, 'date');
   const boughtAs = fieldValue(form, 'boughtAs');
   const figureType = fieldValue(form, 'figureType');

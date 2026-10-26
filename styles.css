@@ -543,7 +543,9 @@ html[data-mode="dark"] .block.yellow {
 }
 
 .block.yellow .tag {
-  border-color: rgba(22, 22, 22, 0.22);
+  background: #fff;
+  color: #161616;
+  border-color: transparent;
 }
 
 .banner, .form-error, .category-error, .cap-note {

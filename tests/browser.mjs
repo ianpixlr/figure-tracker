@@ -741,10 +741,10 @@ async function shootMonthAlign(page) {
 }
 
 async function assertNoFocusZoom(page) {
-  await page.focus('#field-name');
+  await page.focus('#fc-item');
   const zoom = await page.evaluate(() => ({
     scale: window.visualViewport.scale,
-    size: getComputedStyle(document.querySelector('#field-name')).fontSize,
+    size: getComputedStyle(document.querySelector('#fc-item')).fontSize,
     scrollWidth: document.documentElement.scrollWidth,
     inner: window.innerWidth
   }));
@@ -1040,7 +1040,7 @@ async function main() {
     await page.waitForSelector('.form-error:not([hidden])');
     assert.match(await text(page, '.form-error'), /Enter a cap/);
 
-    await go(page, '#log', '#field-name');
+    await go(page, '#log', '#fc-item');
     assert.equal(await page.$('#today-line'), null);
     assert.equal(await page.$eval('input[name="boughtAs"]:checked', (el) => el.value), 'purchased');
     assert.equal(await page.$('input[name="status"]'), null);
@@ -1077,15 +1077,71 @@ async function main() {
         document.querySelector('#log-form [aria-label="Order type"]'),
         document.getElementById('field-brand'),
         document.getElementById('field-series'),
-        document.getElementById('field-name'),
+        document.getElementById('fc-item'),
         document.getElementById('field-price'),
         document.getElementById('field-date'),
         document.querySelector('[data-condition]')
       ];
       const more = document.querySelector('#log-form details.more');
+      const itemLabel = [...document.querySelector('label[for="fc-item"]').childNodes]
+        .filter((node) => node.nodeType === Node.TEXT_NODE)
+        .map((node) => node.textContent)
+        .join(' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+      const banned = [
+        /\bname\b/i,
+        /e-?mail/i,
+        /\bphone\b/i,
+        /\bmobile\b/i,
+        /\bfax\b/i,
+        /\btel\b/i,
+        /\baddress\b/i,
+        /\bstreet\b/i,
+        /\bcity\b/i,
+        /\btown\b/i,
+        /\bzip\b/i,
+        /\bpostal\b/i,
+        /\bpostcode\b/i,
+        /\bcountry\b/i,
+        /\bprovince\b/i,
+        /\bcounty\b/i,
+        /\bstate\b/i,
+        /organi[sz]ation/i,
+        /\bcompany\b/i,
+        /\bemployer\b/i,
+        /\bbirthday\b/i,
+        /\bbday\b/i,
+        /\bsurname\b/i,
+        /\bgiven[- ]?name\b/i,
+        /\bfamily[- ]?name\b/i,
+        /\bfirst[- ]?name\b/i,
+        /\blast[- ]?name\b/i,
+        /\bnickname\b/i
+      ];
+      const contactHits = [...document.querySelectorAll('#log-form input, #log-form textarea')].flatMap((el) => {
+        const type = (el.getAttribute('type') || 'text').toLowerCase();
+        if (el.tagName !== 'TEXTAREA' && type !== 'text' && type !== 'search') return [];
+        const label = el.labels?.[0];
+        const labelText = label
+          ? [...label.childNodes].filter((node) => node.nodeType === Node.TEXT_NODE).map((node) => node.textContent).join(' ')
+          : '';
+        const signature = [
+          el.getAttribute('name') || '',
+          el.id || '',
+          el.getAttribute('placeholder') || '',
+          el.getAttribute('aria-label') || '',
+          labelText
+        ].join(' ');
+        return banned.filter((pattern) => pattern.test(signature)).map((pattern) => `${el.id || el.name}: ${pattern}`);
+      });
       return {
         ordered: chain.every((node, index) => index === 0 || follows(chain[index - 1], node)),
-        name: read('field-name'),
+        itemName: document.getElementById('fc-item').name,
+        itemId: document.getElementById('fc-item').id,
+        itemLabel,
+        contactHits,
+        name: read('fc-item'),
         brand: read('field-brand'),
         series: read('field-series'),
         shop: read('field-shop'),
@@ -1107,6 +1163,10 @@ async function main() {
       };
     });
     assert.equal(formShape.ordered, true);
+    assert.equal(formShape.itemName, 'fc_item');
+    assert.equal(formShape.itemId, 'fc-item');
+    assert.equal(formShape.itemLabel, 'Figure');
+    assert.deepEqual(formShape.contactHits, []);
     for (const field of [formShape.name, formShape.brand, formShape.series, formShape.shop, formShape.fresh]) {
       assert.equal(field.autocorrect, 'off');
       assert.equal(field.autocapitalize, 'words');
@@ -1278,13 +1338,13 @@ async function main() {
     assert.equal(await conditionValue(page), 'MISB');
     assert.equal(await page.$eval('#field-brand', (el) => el.value), 'Good Smile');
     assert.equal(await page.$eval('#field-series', (el) => el.value), 'Eva');
-    assert.equal(await page.$eval('#field-name', (el) => el.value), 'Newer smile');
+    assert.equal(await page.$eval('#fc-item', (el) => el.value), 'Newer smile');
     await go(page, '#edit/cond-other', '#edit-form');
     assert.deepEqual(await page.$$eval('[data-condition] input', (els) => els.map((el) => el.value)), ['MISB', 'MIB', 'BIB', 'Loose', 'Other']);
     assert.equal(await conditionValue(page), 'Other');
     assert.equal(await page.$eval('#field-brand', (el) => el.value), 'Alter');
     assert.equal(await page.$eval('#field-series', (el) => el.value), 'Fate');
-    assert.equal(await page.$eval('#field-name', (el) => el.value), 'Boxed extra');
+    assert.equal(await page.$eval('#fc-item', (el) => el.value), 'Boxed extra');
     assert.equal(await page.$eval('#field-price', (el) => el.value), '30');
     assert.equal(await page.$eval('#field-date', (el) => el.value), '2026-04-04');
     assert.equal(await page.$eval('input[name="figureType"]:checked', (el) => el.value), '1-6');
@@ -1322,9 +1382,9 @@ async function main() {
     });
     await page.evaluate((saved) => localStorage.setItem('figure-cap.v1', saved), formSnapshot);
     await go(page, '#home', '#left-value');
-    await go(page, '#log', '#field-name');
+    await go(page, '#log', '#fc-item');
 
-    await typeInto(page, '#field-name', 'Asuka Langley Soryu Plugsuit Ver. 1/7 Scale');
+    await typeInto(page, '#fc-item', 'Asuka Langley Soryu Plugsuit Ver. 1/7 Scale');
     await typeInto(page, '#field-price', '80');
     await page.$eval('details.more', (el) => { el.open = true; });
     await clickLabel(page, '1/12');
@@ -1367,8 +1427,8 @@ async function main() {
     assert.equal(await page.$('#cap-message'), null);
 
     const earlier = `${realToday.slice(0, 4)}-01-15`;
-    await go(page, '#log', '#field-name');
-    await typeInto(page, '#field-name', 'Rei');
+    await go(page, '#log', '#fc-item');
+    await typeInto(page, '#fc-item', 'Rei');
     await typeInto(page, '#field-price', '150');
     await setDate(page, '#field-date', earlier);
     await clickLabel(page, 'Pre-order');
@@ -1507,8 +1567,8 @@ async function main() {
     await assertAlignment(page);
     await shot(page, 'settings');
 
-    await go(page, '#log', '#field-name');
-    await typeInto(page, '#field-name', 'Over cap');
+    await go(page, '#log', '#fc-item');
+    await typeInto(page, '#fc-item', 'Over cap');
     await typeInto(page, '#field-price', '500');
     await press(page, '#log-form button[type="submit"]');
     await page.waitForSelector('#cap-message');
@@ -1549,8 +1609,8 @@ async function main() {
     assert.equal(stored.depositAmountRm, 25);
     assert.equal(stored.price, 25);
 
-    await go(page, '#log', '#field-name');
-    await typeInto(page, '#field-name', 'Yen figure');
+    await go(page, '#log', '#fc-item');
+    await typeInto(page, '#fc-item', 'Yen figure');
     await page.select('#field-price-currency', 'JPY');
     await setDate(page, '#field-date', '2026-09-15');
     await typeInto(page, '#field-price', '12800');
@@ -1570,8 +1630,8 @@ async function main() {
     assert.equal(yen.fxOverridden, false);
     assert.equal(await text(page, '#ytd-value'), 'RM 416.04');
 
-    await go(page, '#log', '#field-name');
-    await typeInto(page, '#field-name', 'Statement');
+    await go(page, '#log', '#fc-item');
+    await typeInto(page, '#fc-item', 'Statement');
     await page.select('#field-price-currency', 'JPY');
     await typeInto(page, '#field-price', '12800');
     await page.waitForFunction(() => document.querySelector('[data-fx-hint]')?.textContent.includes('RM 391.04'));
@@ -1601,8 +1661,8 @@ async function main() {
 
     fxDown = true;
     await page.evaluate(() => localStorage.removeItem('figure-cap.fx.v1'));
-    await go(page, '#log', '#field-name');
-    await typeInto(page, '#field-name', 'Offline yen');
+    await go(page, '#log', '#fc-item');
+    await typeInto(page, '#fc-item', 'Offline yen');
     await page.select('#field-price-currency', 'USD');
     await typeInto(page, '#field-price', '10');
     await page.waitForFunction(() => /Rate unavailable/.test(document.querySelector('[data-fx-hint]')?.textContent || ''));
@@ -1724,7 +1784,7 @@ async function main() {
       window.__figureCap.clearNow();
     });
 
-    await go(page, '#log', '#field-name');
+    await go(page, '#log', '#fc-item');
     await clickLabel(page, 'Pre-order');
     await page.waitForSelector('[data-preorder]:not([hidden]) #field-est');
     await page.evaluate(() => {
@@ -1736,7 +1796,7 @@ async function main() {
     });
     await page.screenshot({ path: `${REPORTS}/log-add-preorder.png` });
     await page.evaluate(() => { document.getElementById('main').scrollTop = 0; });
-    await typeInto(page, '#field-name', 'Rei');
+    await typeInto(page, '#fc-item', 'Rei');
     await typeInto(page, '#field-est', '200');
     await typeInto(page, '#field-deposit', '50');
     await page.waitForFunction(() => /Balance due/.test(document.querySelector('[data-balance-due]')?.textContent || ''));
@@ -1758,7 +1818,7 @@ async function main() {
         document.querySelector('#log-form [aria-label="Order type"]'),
         document.getElementById('field-brand'),
         document.getElementById('field-series'),
-        document.getElementById('field-name'),
+        document.getElementById('fc-item'),
         document.getElementById('field-est'),
         document.getElementById('field-deposit'),
         document.getElementById('field-date'),
@@ -1878,7 +1938,7 @@ async function main() {
     const screens = [
       ['#home', '#left-value'],
       ['#entries', '#chart'],
-      ['#log', '#field-name'],
+      ['#log', '#fc-item'],
       ['#wish', '#wish-name'],
       ['#sell', 'article.block'],
       ['#edit-sale/sale-1', '#sale-name'],
@@ -1896,7 +1956,7 @@ async function main() {
         if (hash === '#log') {
           await clickLabel(page, 'Pre-order');
           await showTypeExtras(page);
-          await assertFocusRing(page, '#field-name');
+          await assertFocusRing(page, '#fc-item');
         }
         if (hash === '#settings') await assertFocusRing(page, '#field-cap');
         await assertContrast(page);
@@ -1953,9 +2013,9 @@ async function main() {
       await page.setViewport({ width, height: 700, isMobile: true, hasTouch: true, deviceScaleFactor: 2 });
       for (const [hash, ready] of [
         ['#home', '#left-value'],
-        ['#log', '#field-name'],
+        ['#log', '#fc-item'],
         ['#entries', '#chart'],
-        ['#edit/over', '#field-name'],
+        ['#edit/over', '#fc-item'],
         ['#wish', '#wish-name'],
         ['#plan', '#plan-summary'],
         ['#sell', '#sale-name'],
@@ -1992,7 +2052,7 @@ async function main() {
       document.documentElement.dataset.mode = 'light';
       document.documentElement.dataset.theme = 'light';
     });
-    await go(page, '#log', '#field-name');
+    await go(page, '#log', '#fc-item');
     await page.$eval('details.more', (el) => { el.open = true; });
     const builtInChips = await page.evaluate(new Function(`return ${chipLabelList()};`));
     assert.deepEqual(builtInChips, ['Not set', 'Transformers', '1/12', '1/6', 'Other', 'Model Kit', '+ New']);
@@ -2016,7 +2076,7 @@ async function main() {
     assert.equal(await page.$eval('input[name="figureType"]:checked', (el) => el.value), 'Movie');
     assert.equal(await page.$eval('[data-new-category]', (el) => el.hidden), true);
     await page.reload({ waitUntil: 'networkidle0' });
-    await go(page, '#log', '#field-name');
+    await go(page, '#log', '#fc-item');
     await page.$eval('details.more', (el) => { el.open = true; });
     await page.waitForFunction(() => [...document.querySelectorAll('[data-type-chips] .chip')].some((el) => el.querySelector(':scope > span')?.textContent.trim() === 'Movie'));
     await clickLabel(page, 'Movie');
@@ -2027,7 +2087,7 @@ async function main() {
       scroller.scrollTop = Math.max(0, target.getBoundingClientRect().top - origin + scroller.scrollTop - 8);
     });
     await page.screenshot({ path: `${REPORTS}/types-log-add.png` });
-    await typeInto(page, '#field-name', 'Optimus');
+    await typeInto(page, '#fc-item', 'Optimus');
     await typeInto(page, '#field-price', '40');
     await setDate(page, '#field-date', '2026-10-12');
     await typeInto(page, '#field-brand', 'Good Smile');
@@ -2046,7 +2106,7 @@ async function main() {
     await press(page, '[data-action="open-filters"]');
     await page.waitForSelector('dialog[open] [data-filter="type"][data-value="Movie"]');
     await press(page, 'dialog[open] [data-action="close-dialog"]');
-    await go(page, '#log', '#field-name');
+    await go(page, '#log', '#fc-item');
     await page.setViewport({ width: 390, height: 844, isMobile: true, hasTouch: true, deviceScaleFactor: 2 });
     await page.$eval('details.more', (el) => { el.open = true; });
     await press(page, '[data-action="new-category"]');
@@ -2097,7 +2157,7 @@ async function main() {
       const data = JSON.parse(localStorage.getItem('figure-cap.v1') || '{}');
       return data.settings?.categories?.length === 1 && data.settings.categories[0] === 'Movie';
     });
-    await go(page, '#log', '#field-name');
+    await go(page, '#log', '#fc-item');
     await page.$eval('details.more', (el) => { el.open = true; });
     await press(page, '[data-action="remove-category"][data-name="Movie"]');
     await page.waitForSelector('dialog[open]');
@@ -2218,7 +2278,7 @@ async function main() {
     await page.evaluate(() => { document.getElementById('main').scrollTop = 0; });
     await page.screenshot({ path: `${REPORTS}/streamline-home-light.png` });
 
-    await go(page, '#log', '#field-name');
+    await go(page, '#log', '#fc-item');
     await page.evaluate(() => { document.getElementById('main').scrollTop = 0; });
     await page.screenshot({ path: `${REPORTS}/streamline-log-add-light.png` });
 
@@ -2405,24 +2465,20 @@ async function main() {
         document.documentElement.dataset.theme = next;
       }, mode);
       await go(page, '#home', '#balances-card');
-      if (mode === 'light') {
-        const summaryTags = await page.evaluate(() => [...document.querySelectorAll('article.block.yellow .tag')].map((el) => {
-          const style = getComputedStyle(el);
-          return {
-            text: el.textContent.trim(),
-            bg: style.backgroundColor,
-            color: style.color,
-            border: style.borderTopWidth,
-            borderColor: style.borderTopColor
-          };
-        }));
-        assert.ok(summaryTags.length >= 2, JSON.stringify(summaryTags));
-        for (const tag of summaryTags) {
-          assert.equal(tag.bg, 'rgb(255, 228, 92)', tag.text);
-          assert.equal(tag.color, 'rgb(22, 22, 22)', tag.text);
-          assert.equal(tag.border, '1px', tag.text);
-          assert.notEqual(tag.borderColor, 'rgba(0, 0, 0, 0)', tag.text);
-        }
+      const summaryTags = await page.evaluate(() => [...document.querySelectorAll('article.block.yellow .tag')].map((el) => {
+        const style = getComputedStyle(el);
+        return {
+          text: el.textContent.trim(),
+          bg: style.backgroundColor,
+          color: style.color,
+          borderColor: style.borderTopColor
+        };
+      }));
+      assert.ok(summaryTags.length >= 2, JSON.stringify(summaryTags));
+      for (const tag of summaryTags) {
+        assert.equal(tag.bg, 'rgb(255, 255, 255)', `${mode} ${tag.text}`);
+        assert.equal(tag.color, 'rgb(22, 22, 22)', `${mode} ${tag.text}`);
+        assert.equal(tag.borderColor, 'rgba(0, 0, 0, 0)', `${mode} ${tag.text}`);
       }
       await page.evaluate(() => {
         const scroller = document.getElementById('main');
@@ -3254,8 +3310,8 @@ async function main() {
     assert.equal(shortShell.appH, '844px', JSON.stringify(shortShell));
     assert.ok(Math.abs(shortShell.navBottom - 844) < 2, JSON.stringify(shortShell));
     assert.ok(Math.abs(shortShell.appBottom - 844) < 2, JSON.stringify(shortShell));
-    await go(page, '#log', '#field-name');
-    await page.focus('#field-name');
+    await go(page, '#log', '#fc-item');
+    await page.focus('#fc-item');
     await shellSession.send('Emulation.setDeviceMetricsOverride', {
       width: 390,
       height: 500,
