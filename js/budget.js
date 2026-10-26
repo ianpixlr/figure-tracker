@@ -54,7 +54,9 @@ export function yearSpent(purchases, year) {
 }
 
 export function balancesComing(purchases) {
-  const open = purchases.filter((purchase) => purchase.preorderStatus === 'deposit paid');
+  const open = purchases.filter((purchase) => (
+    purchase.preorderStatus === 'deposit paid' && (toCents(purchase.balanceDueRm) ?? 0) > 0
+  ));
   const cents = open.reduce((sum, purchase) => sum + (toCents(purchase.balanceDueRm) ?? 0), 0);
   return { count: open.length, total: fromCents(cents) };
 }

@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import {
+  balancesComing,
   chartMonths,
   effectiveCap,
   fitFor,
@@ -17,7 +18,7 @@ import {
   yearSpent
 } from '../js/budget.js';
 import { carousellSearchUrl, categoryTotals, filterPurchases, latestPriceCheck, rrpSearchUrl } from '../js/catalog.js';
-import { formatRM, parseMoney } from '../js/money.js';
+import { formatRM, parseMoney, withAmounts } from '../js/money.js';
 import {
   emptyData,
   exportPayload,
@@ -311,7 +312,7 @@ test('storage defaults, import, and corrupt files', () => {
   assert.equal(clean.purchases[0].mood, undefined);
   assert.equal(clean.purchases[0].notes, 'shelf');
   assert.equal(clean.purchases[0].boughtAs, 'preorder');
-  assert.equal(clean.purchases[0].status, 'preordered');
+  assert.equal(clean.purchases[0].status, 'received');
   assert.equal(clean.purchases[0].currency, 'MYR');
   assert.equal(clean.purchases[0].originalAmount, 40);
   assert.equal(clean.purchases[0].price, 40);
@@ -356,7 +357,7 @@ test('storage defaults, import, and corrupt files', () => {
   }));
   const migrated = load('2026-10', legacyStore);
   assert.equal(migrated.data.purchases[0].notes, 'window');
-  assert.equal(migrated.data.purchases[0].boughtAs, 'new');
+  assert.equal(migrated.data.purchases[0].boughtAs, 'purchased');
   assert.equal(migrated.data.purchases[0].status, 'received');
   assert.equal(migrated.data.purchases[0].mood, undefined);
   assert.equal(migrated.data.purchases[0].price, 80);
@@ -374,6 +375,63 @@ test('storage defaults, import, and corrupt files', () => {
   assert.equal(emptyData('2026-11').settings.waitHours, undefined);
   assert.equal(emptyData('2026-11').settings.syncUrl, '');
   assert.deepEqual(emptyData('2026-11').forSale, []);
+});
+
+test('order type migrates and status follows payment', () => {
+  const clean = normalizeData({
+    settings: { monthlyCap: 400, trackingStart: '2026-10' },
+    purchases: [
+      { id: 'n', name: 'New', price: 10, date: '2026-10-01', boughtAs: 'new', status: 'preordered' },
+      { id: 's', name: 'Used', price: 12, date: '2026-10-02', boughtAs: 'second-hand', status: 'received' },
+      { id: 'b', name: 'Bought', price: 15, date: '2026-10-03', boughtAs: 'purchased', status: 'preordered' },
+      {
+        id: 'o',
+        name: 'Open',
+        date: '2026-10-04',
+        boughtAs: 'preorder',
+        status: 'received',
+        estFullPrice: 200,
+        estFullCurrency: 'MYR',
+        depositAmountRm: 50,
+        depositCurrency: 'MYR',
+        depositDate: '2026-10-04'
+      }
+    ],
+    wishlist: []
+  }, '2026-10');
+  const byId = Object.fromEntries(clean.purchases.map((item) => [item.id, item]));
+  assert.equal(byId.n.boughtAs, 'purchased');
+  assert.equal(byId.n.status, 'received');
+  assert.equal(byId.s.boughtAs, 'purchased');
+  assert.equal(byId.s.status, 'received');
+  assert.equal(byId.b.boughtAs, 'purchased');
+  assert.equal(byId.b.status, 'received');
+  assert.equal(byId.o.boughtAs, 'preorder');
+  assert.equal(byId.o.status, 'preordered');
+  assert.equal(byId.o.preorderStatus, 'deposit paid');
+  assert.equal(byId.o.balanceDueRm, 150);
+  assert.deepEqual(balancesComing([byId.o, byId.n, { preorderStatus: 'fully paid', balanceDueRm: 0 }]), {
+    count: 1,
+    total: 150
+  });
+  assert.deepEqual(balancesComing([{ preorderStatus: 'deposit paid', balanceDueRm: 0 }]), { count: 0, total: 0 });
+});
+
+test('money amounts stay together and break only at the dot separator', () => {
+  assert.equal(
+    withAmounts('Deposit RM 50.00 · Balance due RM 150.00'),
+    '<span class="amt">Deposit RM 50.00</span> · <span class="amt">Balance due RM 150.00</span>'
+  );
+  assert.equal(
+    withAmounts('cap RM 450 · RM 50 rolled over'),
+    '<span class="amt">cap RM 450</span> · <span class="amt">RM 50</span> rolled over'
+  );
+  assert.equal(
+    withAmounts('Market RM 40 / 55 / 80 · RRP RM 90'),
+    '<span class="amt">Market RM 40 / 55 / 80</span> · <span class="amt">RRP RM 90</span>'
+  );
+  assert.equal(withAmounts('a < b · -RM 12.50 over'), 'a &lt; b · <span class="amt">-RM 12.50</span> over');
+  assert.equal(withAmounts('left this month'), 'left this month');
 });
 
 test('filters, category totals, and the latest price check', () => {

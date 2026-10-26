@@ -3,6 +3,7 @@
 // Existing saves used `type` and `note`. Loading rewrites them into the
 // current shape and keeps the ringgit amount the cap already used.
 
+import { derivedPurchaseStatus, normalizeBoughtAs } from './catalog.js';
 import { fromCents, parseMoney, toCents } from './money.js';
 import { isMonth, isYMD } from './time.js';
 
@@ -11,7 +12,6 @@ export const MAX_MONEY = 1000000;
 export const MAX_FOREIGN = 100000000;
 
 const FIGURE_TYPES = new Set(['', 'scale', 'nendoroid', 'figma', 'prize', 'model-kit', 'other']);
-const BOUGHT_AS = new Set(['new', 'preorder', 'second-hand']);
 const PURCHASE_CONDITIONS = new Set(['', 'MISB', 'MIB', 'BIB', 'Loose', 'Other']);
 const SALE_CONDITIONS = new Set(['MISB', 'MIB', 'BIB', 'Loose']);
 const PREORDER_STATUS = new Set(['deposit paid', 'fully paid']);
@@ -265,10 +265,8 @@ function cleanPurchase(input, seen) {
   const date = String(input.date ?? '');
   if (!name || !isYMD(date)) return null;
 
-  let boughtAs = BOUGHT_AS.has(input.boughtAs) ? input.boughtAs : '';
-  if (!boughtAs) boughtAs = input.type === 'preorder' ? 'preorder' : 'new';
-  let status = input.status === 'preordered' || input.status === 'received' ? input.status : '';
-  if (!status) status = boughtAs === 'preorder' ? 'preordered' : 'received';
+  const boughtAs = normalizeBoughtAs(input.boughtAs, input.type);
+  const status = derivedPurchaseStatus(boughtAs, '');
 
   let figureType = FIGURE_TYPES.has(input.figureType) ? input.figureType : '';
   if (!figureType && FIGURE_TYPES.has(input.type) && input.type) figureType = input.type;
@@ -339,7 +337,8 @@ function cleanPurchase(input, seen) {
     })),
     balancePaidDate: balance ? balanceDate : '',
     finalTotalRm: settled.finalTotalRm,
-    preorderStatus: settled.preorderStatus
+    preorderStatus: settled.preorderStatus,
+    status: derivedPurchaseStatus(boughtAs, settled.preorderStatus)
   };
 }
 

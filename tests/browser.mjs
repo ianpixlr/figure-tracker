@@ -7,16 +7,7 @@ import { DEFAULT_SYNC_URL } from '../js/sync.js';
 
 const BASE = 'http://127.0.0.1:8765/';
 const SHOTS = '/tmp/figure-cap-shots';
-
-function klLong(date) {
-  return new Intl.DateTimeFormat('en-MY', {
-    timeZone: 'Asia/Kuala_Lumpur',
-    weekday: 'long',
-    day: 'numeric',
-    month: 'long',
-    year: 'numeric'
-  }).format(date);
-}
+const REPORTS = '/opt/cursor/artifacts/screenshots';
 
 async function text(page, selector) {
   return page.$eval(selector, (el) => el.textContent.trim());
@@ -24,6 +15,53 @@ async function text(page, selector) {
 
 async function bodyText(page) {
   return page.evaluate(() => document.body.innerText);
+}
+
+async function assertSearchToolbar(page) {
+  const search = await page.evaluate(() => {
+    const box = document.querySelector('.tools .search');
+    const filter = document.querySelector('.tools .filter-btn');
+    const input = box?.querySelector('input');
+    const icon = box?.querySelector('.search-icon');
+    if (!box || !filter || !input || !icon) return null;
+    const br = box.getBoundingClientRect();
+    const fr = filter.getBoundingClientRect();
+    const ir = input.getBoundingClientRect();
+    const bs = getComputedStyle(box);
+    const fs = getComputedStyle(filter);
+    const is = getComputedStyle(input);
+    return {
+      placeholder: input.placeholder,
+      label: input.getAttribute('aria-label'),
+      sameRow: Math.abs((br.top + br.height / 2) - (fr.top + fr.height / 2)) < 4,
+      wider: br.width > fr.width + 8,
+      heightDelta: Math.abs(br.height - fr.height),
+      searchHeight: br.height,
+      inputHeight: ir.height,
+      inputWidth: ir.width,
+      radius: bs.borderTopLeftRadius,
+      filterRadius: fs.borderTopLeftRadius,
+      border: bs.borderTopWidth,
+      filterBorder: fs.borderTopWidth,
+      borderColor: bs.borderTopColor,
+      filterBorderColor: fs.borderTopColor,
+      appearance: is.appearance
+    };
+  });
+  assert.ok(search, 'search toolbar missing');
+  assert.equal(search.placeholder, 'Search purchases');
+  assert.equal(search.label, 'Search purchases');
+  assert.equal(search.sameRow, true);
+  assert.equal(search.wider, true);
+  assert.ok(search.heightDelta < 2, `search ${search.searchHeight} vs filter`);
+  assert.ok(search.searchHeight >= 47, String(search.searchHeight));
+  assert.ok(search.inputHeight >= 47, String(search.inputHeight));
+  assert.ok(search.inputWidth > 80, String(search.inputWidth));
+  assert.equal(search.radius, search.filterRadius);
+  assert.equal(search.border, '1px');
+  assert.equal(search.filterBorder, '1px');
+  assert.equal(search.borderColor, search.filterBorderColor);
+  assert.equal(search.appearance, 'none');
 }
 
 async function shot(page, name, focus) {
@@ -511,6 +549,7 @@ async function reset(page) {
 
 async function main() {
   await mkdir(SHOTS, { recursive: true });
+  await mkdir(REPORTS, { recursive: true });
   const external = [];
   const errors = [];
   let fxDown = false;
@@ -575,7 +614,7 @@ async function main() {
     await reset(page);
 
     const realToday = await page.evaluate(() => window.__figureCap.today());
-    assert.equal(await text(page, '#today-line'), klLong(new Date()));
+    assert.equal(await page.$('#today-line'), null);
     assert.equal(await text(page, '#left-value'), 'RM 400 / 400');
     const headingFocus = await page.evaluate(() => {
       const heading = document.getElementById('month-title');
@@ -598,6 +637,12 @@ async function main() {
     assert.equal(await page.$('#cap-message'), null);
     assert.equal(await page.$('#pace-card'), null);
     const homeText = await bodyText(page);
+    const homeMain = await page.$eval('#main', (el) => el.innerText);
+    assert.equal(homeMain.includes('Wishlist'), false);
+    assert.match(homeMain, /Purchases/i);
+    assert.equal(homeMain.includes('MONDAY'), false);
+    assert.equal(await page.$('#main .block.sky'), null);
+    assert.equal(await page.$('#main .block.coral'), null);
     assert.equal(homeText.includes('One in, one out'), false);
     assert.equal(homeText.includes('Rules'), false);
     assert.equal(homeText.includes('48-hour'), false);
@@ -629,6 +674,9 @@ async function main() {
     assert.match(await text(page, '.form-error'), /Enter a cap/);
 
     await go(page, '#log', '#field-name');
+    assert.equal(await page.$('#today-line'), null);
+    assert.equal(await page.$eval('input[name="boughtAs"]:checked', (el) => el.value), 'purchased');
+    assert.equal(await page.$('input[name="status"]'), null);
     assert.equal(await page.$eval('#field-date', (el) => el.value), realToday);
     assert.equal(await page.$eval('#field-price-currency', (el) => el.value), 'MYR');
     await press(page, '#log-form button[type="submit"]');
@@ -820,6 +868,7 @@ async function main() {
     assert.equal(stored.currency, 'MYR');
     assert.equal(stored.notes, 'box');
     assert.equal(stored.boughtAs, 'preorder');
+    assert.equal(stored.status, 'received');
     assert.equal(stored.preorderStatus, 'fully paid');
     assert.equal(stored.depositAmountRm, 25);
     assert.equal(stored.price, 25);
@@ -963,7 +1012,39 @@ async function main() {
     await go(page, '#plan', '#plan-summary');
     assert.match(await text(page, '#plan-summary'), /RM 340\.00/);
     await shot(page, 'plan-payback');
-    await page.evaluate(() => window.__figureCap.clearNow());
+    await page.evaluate(() => {
+      const saved = localStorage.getItem('figure-cap.v1');
+      localStorage.setItem('figure-cap.v1', JSON.stringify({
+        settings: { monthlyCap: 400, rollover: true, overspendPayback: true, trackingStart: '2026-09', syncUrl: '' },
+        purchases: [{
+          id: 'sep',
+          name: 'September prize',
+          price: 350,
+          originalAmount: 350,
+          currency: 'MYR',
+          fxRate: 1,
+          date: '2026-09-02',
+          boughtAs: 'purchased',
+          status: 'received',
+          createdAt: '2026-09-02T00:00:00.000Z',
+          updatedAt: '2026-09-02T00:00:00.000Z'
+        }],
+        wishlist: [],
+        forSale: []
+      }));
+      if (location.hash !== '#home') location.hash = '#home';
+      window.__figureCap.setNow('2026-10-20T04:00:00Z');
+      window.__savedCap = saved;
+    });
+    await page.waitForFunction(() => document.getElementById('cap-line')?.textContent === 'cap RM 450 · RM 50 rolled over');
+    assert.equal(await page.$('#main .block.coral'), null);
+    assert.equal(await page.$('#balances-card'), null);
+    assert.equal(await page.$('#today-line'), null);
+    assert.match(await page.$eval('#cap-line', (el) => el.innerHTML), /<span class="amt">cap RM 450<\/span> · <span class="amt">RM 50<\/span> rolled over/);
+    await page.evaluate(() => {
+      localStorage.setItem('figure-cap.v1', window.__savedCap);
+      window.__figureCap.clearNow();
+    });
 
     await go(page, '#log', '#field-name');
     await clickLabel(page, 'Pre-order');
@@ -971,16 +1052,25 @@ async function main() {
     await typeInto(page, '#field-est', '200');
     await typeInto(page, '#field-deposit', '50');
     await page.waitForFunction(() => /Balance due/.test(document.querySelector('[data-balance-due]')?.textContent || ''));
+    const due = await page.$eval('[data-balance-due]', (el) => ({
+      text: el.textContent.trim(),
+      html: el.innerHTML,
+      nowrap: el.querySelector('.amt') ? getComputedStyle(el.querySelector('.amt')).whiteSpace : '',
+      lines: el.querySelector('.amt') ? el.querySelector('.amt').getClientRects().length : 0
+    }));
+    assert.equal(due.text, 'Balance due RM 150.00');
+    assert.equal(due.html, '<span class="amt">Balance due RM 150.00</span>');
+    assert.equal(due.nowrap, 'nowrap');
+    assert.equal(due.lines, 1);
     const order = await page.evaluate(() => {
       const name = document.querySelector('#field-name');
-      const bought = [...document.querySelectorAll('.kicker')].find((el) => el.textContent.trim() === 'Bought as');
-      const status = [...document.querySelectorAll('.kicker')].find((el) => el.textContent.trim() === 'Status');
+      const bought = [...document.querySelectorAll('.kicker')].find((el) => el.textContent.trim() === 'Order type');
+      const status = [...document.querySelectorAll('#log-form .kicker, #edit-form .kicker')].find((el) => el.textContent.trim() === 'Status');
       const price = document.querySelector('#field-est');
       const after = Node.DOCUMENT_POSITION_FOLLOWING;
-      return Boolean(name && bought && status && price)
+      return Boolean(name && bought && !status && price)
         && Boolean(name.compareDocumentPosition(bought) & after)
-        && Boolean(bought.compareDocumentPosition(status) & after)
-        && Boolean(status.compareDocumentPosition(price) & after);
+        && Boolean(bought.compareDocumentPosition(price) & after);
     });
     assert.equal(order, true);
     await page.select('#field-est-currency', 'JPY');
@@ -1122,12 +1212,138 @@ async function main() {
         ['#settings', '#field-cap']
       ]) {
         await go(page, hash, ready);
+        assert.equal(await page.$('#today-line'), null);
         if (hash === '#log') await clickLabel(page, 'Pre-order');
+        if (hash === '#entries') {
+          await assertSearchToolbar(page);
+          await page.evaluate(() => { document.documentElement.dataset.mode = 'dark'; });
+          await assertSearchToolbar(page);
+          await assertNoOverflow(page);
+          await assertTextFits(page);
+          await page.evaluate(() => { document.documentElement.dataset.mode = 'light'; });
+        }
         await assertNoOverflow(page);
         await assertTapTargets(page);
         await assertTextFits(page);
       }
     }
+
+    await page.setViewport({ width: 320, height: 844, isMobile: true, hasTouch: true, deviceScaleFactor: 2 });
+    await page.evaluate(() => {
+      localStorage.setItem('figure-cap.theme', 'light');
+      document.documentElement.dataset.mode = 'light';
+      document.documentElement.dataset.theme = 'light';
+      localStorage.setItem('figure-cap.v1', JSON.stringify({
+        settings: { monthlyCap: 400, rollover: true, overspendPayback: true, trackingStart: '2026-09', syncUrl: '' },
+        purchases: [
+          {
+            id: 'sep',
+            name: 'September prize',
+            price: 350,
+            originalAmount: 350,
+            currency: 'MYR',
+            fxRate: 1,
+            date: '2026-09-02',
+            boughtAs: 'purchased',
+            status: 'received',
+            figureType: 'prize',
+            createdAt: '2026-09-02T00:00:00.000Z',
+            updatedAt: '2026-09-02T00:00:00.000Z'
+          },
+          {
+            id: 'open-po',
+            name: 'Rei Ayanami',
+            date: '2026-10-04',
+            boughtAs: 'preorder',
+            status: 'preordered',
+            price: 200,
+            originalAmount: 200,
+            currency: 'MYR',
+            fxRate: 1,
+            figureType: 'scale',
+            series: 'Evangelion',
+            estFullPrice: 200,
+            estFullOriginalAmount: 200,
+            estFullCurrency: 'MYR',
+            estFullFxRate: 1,
+            estFullFxDate: '2026-10-04',
+            depositAmountRm: 50,
+            depositOriginalAmount: 50,
+            depositCurrency: 'MYR',
+            depositFxRate: 1,
+            depositFxDate: '2026-10-04',
+            depositDate: '2026-10-04',
+            balanceDueRm: 150,
+            preorderStatus: 'deposit paid',
+            createdAt: '2026-10-04T00:00:00.000Z',
+            updatedAt: '2026-10-04T00:00:00.000Z'
+          }
+        ],
+        wishlist: [],
+        forSale: []
+      }));
+      window.__figureCap.setNow('2026-10-26T04:00:00Z');
+      location.hash = '#entries';
+    });
+    await page.waitForSelector('.money-note');
+    const moneyLine = await page.evaluate(() => {
+      const el = document.querySelector('.money-note');
+      const amts = [...el.querySelectorAll('.amt')];
+      return {
+        text: el.textContent.trim(),
+        lines: amts.map((amt) => amt.getClientRects().length),
+        nowrap: amts.map((amt) => getComputedStyle(amt).whiteSpace)
+      };
+    });
+    assert.equal(moneyLine.text, 'Deposit RM 50.00 · Balance due RM 150.00');
+    assert.deepEqual(moneyLine.lines, [1, 1]);
+    assert.deepEqual(moneyLine.nowrap, ['nowrap', 'nowrap']);
+    await assertNoOverflow(page);
+    await assertTextFits(page);
+    await assertSearchToolbar(page);
+
+    await page.setViewport({ width: 390, height: 844, isMobile: true, hasTouch: true, deviceScaleFactor: 2 });
+    await go(page, '#home', '#left-value');
+    assert.equal(await text(page, '#cap-line'), 'cap RM 450 · RM 50 rolled over');
+    assert.equal(await page.$('#today-line'), null);
+    assert.notEqual(await page.$('#balances-card'), null);
+    assert.equal(await page.$('#main .block.sky'), null);
+    await page.evaluate(() => { document.getElementById('main').scrollTop = 0; });
+    await page.screenshot({ path: `${REPORTS}/streamline-home-light.png` });
+
+    await go(page, '#log', '#field-name');
+    await page.evaluate(() => { document.getElementById('main').scrollTop = 0; });
+    await page.screenshot({ path: `${REPORTS}/streamline-log-add-light.png` });
+
+    await page.evaluate(() => {
+      document.documentElement.dataset.mode = 'dark';
+      document.documentElement.dataset.theme = 'dark';
+      localStorage.setItem('figure-cap.theme', 'dark');
+    });
+    await clickLabel(page, 'Pre-ordered');
+    await page.waitForSelector('#field-deposit');
+    await page.evaluate(() => {
+      const scroller = document.getElementById('main');
+      const target = [...document.querySelectorAll('.kicker')].find((el) => el.textContent.trim() === 'Order type');
+      const origin = scroller.getBoundingClientRect().top;
+      const top = target.getBoundingClientRect().top - origin + scroller.scrollTop;
+      scroller.scrollTop = Math.max(0, top - 8);
+    });
+    await page.screenshot({ path: `${REPORTS}/streamline-log-add-dark.png` });
+
+    await page.evaluate(() => {
+      document.documentElement.dataset.mode = 'light';
+      document.documentElement.dataset.theme = 'light';
+      localStorage.setItem('figure-cap.theme', 'light');
+    });
+    await go(page, '#entries', '.tools .search');
+    await page.evaluate(() => { document.getElementById('main').scrollTop = 0; });
+    await assertSearchToolbar(page);
+    await page.screenshot({ path: `${REPORTS}/streamline-log-entries-toolbar.png` });
+    await page.evaluate(() => { document.documentElement.dataset.mode = 'dark'; });
+    await assertSearchToolbar(page);
+    await page.screenshot({ path: `${REPORTS}/streamline-log-entries-toolbar-dark.png` });
+    await page.evaluate(() => { document.documentElement.dataset.mode = 'light'; });
 
     const sw = await page.evaluate(async () => {
       const reg = await navigator.serviceWorker.ready;

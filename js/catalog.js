@@ -14,9 +14,8 @@ export const FIGURE_TYPES = [
 ];
 
 export const BOUGHT_AS_OPTIONS = [
-  { value: 'new', label: 'New' },
-  { value: 'preorder', label: 'Pre-order' },
-  { value: 'second-hand', label: 'Second-hand' }
+  { value: 'purchased', label: 'Purchased' },
+  { value: 'preorder', label: 'Pre-ordered' }
 ];
 
 export const PURCHASE_CONDITIONS = [
@@ -51,7 +50,22 @@ export function figureTypeLabel(value) {
 }
 
 export function boughtAsLabel(value) {
-  return BOUGHT_AS_OPTIONS.find((item) => item.value === value)?.label || 'New';
+  return BOUGHT_AS_OPTIONS.find((item) => item.value === value)?.label || 'Purchased';
+}
+
+// Older logs used New and Second-hand. Both are purchases; condition covers used figures.
+export function normalizeBoughtAs(value, legacyType) {
+  const raw = String(value || '').trim().toLowerCase().replace(/[\s_]+/g, '-');
+  if (raw === 'preorder' || raw === 'pre-order' || raw === 'preordered') return 'preorder';
+  if (raw === 'purchased' || raw === 'new' || raw === 'second-hand' || raw === 'secondhand') return 'purchased';
+  if (legacyType === 'preorder') return 'preorder';
+  return 'purchased';
+}
+
+// Purchased figures are received. A pre-order stays pre-ordered until the balance is fully paid.
+export function derivedPurchaseStatus(boughtAs, preorderStatus) {
+  if (normalizeBoughtAs(boughtAs) === 'preorder' && preorderStatus !== 'fully paid') return 'preordered';
+  return 'received';
 }
 
 export function purchaseStatusLabel(value) {

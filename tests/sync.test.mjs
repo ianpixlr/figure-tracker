@@ -93,7 +93,11 @@ test('sheet headers match the rows the app sends', () => {
   assert.equal(row.amount_rm, 391.04);
   assert.equal(row.fx_overridden, 'yes');
   assert.equal(row.type, 'Nendoroid');
-  assert.equal(row.bought_as, 'Pre-order');
+  assert.equal(row.bought_as, 'Pre-ordered');
+  assert.equal(row.status, 'Pre-ordered');
+  const purchased = purchaseRow({ ...samplePurchase(), boughtAs: 'purchased', status: 'received' });
+  assert.equal(purchased.bought_as, 'Purchased');
+  assert.equal(purchased.status, 'Received');
   assert.equal(row.preorder_status, '');
   assert.equal(row.mood, undefined);
   const open = purchaseRow({
