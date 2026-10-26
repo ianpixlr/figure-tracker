@@ -28,21 +28,27 @@ async function bodyText(page) {
 
 async function shot(page, name, focus) {
   await page.evaluate((selector) => {
+    const scroller = document.getElementById('main') || document.scrollingElement;
     const pinBottom = selector.startsWith('bottom:');
     const query = pinBottom ? selector.slice('bottom:'.length) : selector;
     if (!query) {
+      scroller.scrollTop = 0;
       window.scrollTo(0, 0);
       return;
     }
     const el = document.querySelector(query);
     if (!el) {
-      window.scrollTo(0, 0);
+      scroller.scrollTop = 0;
       return;
     }
+    const origin = scroller.getBoundingClientRect().top;
+    const elTop = el.getBoundingClientRect().top - origin + scroller.scrollTop;
+    const elBottom = el.getBoundingClientRect().bottom - origin + scroller.scrollTop;
     const top = pinBottom
-      ? el.getBoundingClientRect().bottom + window.scrollY - window.innerHeight + 96
-      : el.getBoundingClientRect().top + window.scrollY - 72;
-    window.scrollTo(0, Math.max(0, top));
+      ? elBottom - scroller.clientHeight + 96
+      : elTop - 8;
+    scroller.scrollTop = Math.max(0, top);
+    window.scrollTo(0, 0);
   }, focus || '');
   await page.screenshot({ path: `${SHOTS}/${name}.png` });
 }
@@ -240,15 +246,33 @@ async function clickDialog(page, label) {
 }
 
 async function assertNoOverflow(page) {
-  const extra = await page.evaluate(() => (
-    document.documentElement.scrollWidth - document.documentElement.clientWidth
-  ));
-  assert.ok(extra <= 1, `horizontal overflow ${extra}px`);
+  const extra = await page.evaluate(() => {
+    const wide = [];
+    for (const el of document.body.querySelectorAll('*')) {
+      if (el.closest('[hidden]')) continue;
+      const style = getComputedStyle(el);
+      if (style.display === 'none' || style.visibility === 'hidden') continue;
+      const rect = el.getBoundingClientRect();
+      if (rect.width < 2 || rect.height < 2) continue;
+      if (rect.right > window.innerWidth + 1 || rect.left < -1) {
+        wide.push(`${el.tagName}.${String(el.className).slice(0, 40)} ${Math.round(rect.left)}-${Math.round(rect.right)}`);
+      }
+      if (wide.length > 6) break;
+    }
+    return {
+      scroll: document.documentElement.scrollWidth,
+      inner: window.innerWidth,
+      wide
+    };
+  });
+  assert.equal(extra.scroll, extra.inner, JSON.stringify(extra));
+  assert.deepEqual(extra.wide, []);
 }
 
 async function assertClearsNav(page) {
   const covered = await page.evaluate(() => {
-    window.scrollTo(0, document.documentElement.scrollHeight);
+    const scroller = document.getElementById('main');
+    scroller.scrollTop = scroller.scrollHeight;
     const nav = document.querySelector('.nav');
     if (!nav) return ['missing nav'];
     const limit = nav.getBoundingClientRect().top;
@@ -281,6 +305,198 @@ async function assertTapTargets(page) {
     });
   });
   assert.deepEqual(small, []);
+}
+
+async function assertShell(page) {
+  const shell = await page.evaluate(() => {
+    const html = getComputedStyle(document.documentElement);
+    const body = getComputedStyle(document.body);
+    const main = getComputedStyle(document.getElementById('main'));
+    const nav = getComputedStyle(document.querySelector('.nav'));
+    return {
+      overscroll: html.overscrollBehavior,
+      bodyOverscroll: body.overscrollBehavior,
+      bodyPosition: body.position,
+      bodyOverflow: body.overflowX,
+      mainOverflow: main.overflowY,
+      mainOverscroll: main.overscrollBehavior,
+      navPosition: nav.position,
+      touch: html.touchAction,
+      viewport: document.querySelector('meta[name="viewport"]').content,
+      preload: Boolean(document.querySelector('link[rel="preload"][as="font"]'))
+    };
+  });
+  assert.equal(shell.viewport, 'width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover');
+  assert.equal(shell.bodyPosition, 'fixed');
+  assert.equal(shell.navPosition, 'fixed');
+  assert.equal(shell.mainOverflow, 'auto');
+  assert.ok(shell.overscroll.includes('none'), shell.overscroll);
+  assert.ok(shell.bodyOverscroll.includes('none'), shell.bodyOverscroll);
+  assert.ok(shell.mainOverscroll.includes('none'), shell.mainOverscroll);
+  assert.equal(shell.bodyOverflow, 'hidden');
+  assert.equal(shell.touch, 'manipulation');
+  assert.equal(shell.preload, true);
+}
+
+async function assertNoFocusZoom(page) {
+  await page.focus('#field-name');
+  const zoom = await page.evaluate(() => ({
+    scale: window.visualViewport.scale,
+    size: getComputedStyle(document.querySelector('#field-name')).fontSize,
+    scrollWidth: document.documentElement.scrollWidth,
+    inner: window.innerWidth
+  }));
+  assert.equal(zoom.scale, 1);
+  assert.equal(zoom.size, '15px');
+  assert.equal(zoom.scrollWidth, zoom.inner);
+}
+
+function contrastScript() {
+  return `(() => {
+    const parse = (text) => {
+      const match = String(text || '').match(/rgba?\\(([^)]+)\\)/);
+      if (!match) return null;
+      const parts = match[1].split(',').map((part) => Number(part.trim()));
+      return { r: parts[0], g: parts[1], b: parts[2], a: parts.length > 3 ? parts[3] : 1 };
+    };
+    const lin = (channel) => {
+      const value = channel / 255;
+      return value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4;
+    };
+    const lum = (rgb) => 0.2126 * lin(rgb.r) + 0.7152 * lin(rgb.g) + 0.0722 * lin(rgb.b);
+    const over = (fg, bg) => ({
+      r: fg.r * fg.a + bg.r * (1 - fg.a),
+      g: fg.g * fg.a + bg.g * (1 - fg.a),
+      b: fg.b * fg.a + bg.b * (1 - fg.a),
+      a: 1
+    });
+    const ratio = (a, b) => {
+      const left = lum(a);
+      const right = lum(b);
+      return (Math.max(left, right) + 0.05) / (Math.min(left, right) + 0.05);
+    };
+    const painted = (el) => {
+      const layers = [];
+      let node = el;
+      while (node) {
+        const bg = parse(getComputedStyle(node).backgroundColor);
+        if (bg && bg.a > 0.01) layers.push(bg);
+        if (bg && bg.a >= 0.99) break;
+        node = node.parentElement;
+      }
+      if (!layers.length) layers.push(parse(getComputedStyle(document.body).backgroundColor));
+      let acc = layers[layers.length - 1];
+      for (let i = layers.length - 2; i >= 0; i -= 1) acc = over(layers[i], acc);
+      return acc;
+    };
+    const hidden = (el) => {
+      if (!el || el.closest('[hidden]')) return true;
+      const style = getComputedStyle(el);
+      return style.display === 'none' || style.visibility === 'hidden' || Number(style.opacity) === 0;
+    };
+    const problems = [];
+    const note = (label, value, need) => {
+      if (value + 0.02 < need) problems.push(label + ' ' + value.toFixed(2) + '<' + need);
+    };
+    for (const el of document.body.querySelectorAll('*')) {
+      if (hidden(el) || el.disabled) continue;
+      const direct = [...el.childNodes].some((node) => node.nodeType === 3 && node.textContent.trim());
+      if (!direct) continue;
+      const style = getComputedStyle(el);
+      const fg = parse(style.color);
+      if (!fg || fg.a < 0.2) continue;
+      const rect = el.getBoundingClientRect();
+      if (rect.width < 2 || rect.height < 2) continue;
+      const size = parseFloat(style.fontSize);
+      const need = size >= 22 ? 3 : 4.5;
+      note(size + 'px ' + (el.innerText || '').trim().slice(0, 42), ratio(fg, painted(el)), need);
+      if (problems.length > 8) break;
+    }
+    for (const el of document.querySelectorAll('input, textarea')) {
+      if (hidden(el) || el.disabled || el.type === 'checkbox' || el.type === 'radio' || el.type === 'file') continue;
+      const hint = parse(getComputedStyle(el, '::placeholder').color);
+      if (!hint) continue;
+      note('placeholder ' + (el.getAttribute('placeholder') || el.id || ''), ratio(hint, painted(el)), 4.5);
+      if (problems.length > 10) break;
+    }
+    return problems.slice(0, 10);
+  })()`;
+}
+
+async function assertContrast(page) {
+  const problems = await page.evaluate(new Function(`return ${contrastScript()};`));
+  assert.deepEqual(problems, []);
+}
+
+async function assertFocusRing(page, selector) {
+  await page.$eval(selector, (el) => el.focus({ focusVisible: true }));
+  const ring = await page.evaluate((sel) => {
+    const el = document.querySelector(sel);
+    const style = getComputedStyle(el);
+    const parse = (text) => {
+      const match = String(text || '').match(/rgba?\(([^)]+)\)/);
+      if (!match) return null;
+      const parts = match[1].split(',').map((part) => Number(part.trim()));
+      return { r: parts[0], g: parts[1], b: parts[2], a: parts.length > 3 ? parts[3] : 1 };
+    };
+    const lin = (channel) => {
+      const value = channel / 255;
+      return value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4;
+    };
+    const lum = (rgb) => 0.2126 * lin(rgb.r) + 0.7152 * lin(rgb.g) + 0.0722 * lin(rgb.b);
+    const ratio = (a, b) => {
+      const left = lum(a);
+      const right = lum(b);
+      return (Math.max(left, right) + 0.05) / (Math.min(left, right) + 0.05);
+    };
+    let node = el.parentElement;
+    let bg = null;
+    while (node) {
+      const paint = parse(getComputedStyle(node).backgroundColor);
+      if (paint && paint.a >= 0.99) {
+        bg = paint;
+        break;
+      }
+      node = node.parentElement;
+    }
+    const fg = parse(style.outlineColor);
+    return {
+      width: style.outlineWidth,
+      style: style.outlineStyle,
+      ratio: fg && bg ? ratio(fg, bg) : 0
+    };
+  }, selector);
+  assert.equal(ring.style, 'solid');
+  assert.ok(parseFloat(ring.width) >= 3, ring.width);
+  assert.ok(ring.ratio >= 3, String(ring.ratio));
+}
+
+async function assertSingleDividers(page) {
+  const problems = await page.evaluate(() => {
+    const visible = (el) => el && !el.hidden && !el.closest('[hidden]') && getComputedStyle(el).display !== 'none';
+    const problems = [];
+    for (const row of document.querySelectorAll('.row')) {
+      if (!visible(row)) continue;
+      const top = parseFloat(getComputedStyle(row).borderTopWidth) || 0;
+      if (row.querySelector('.field') && top > 0) problems.push('field row border');
+    }
+    for (const group of document.querySelectorAll('.group')) {
+      const rows = [...group.querySelectorAll(':scope > .row')].filter(visible);
+      for (let i = 1; i < rows.length; i += 1) {
+        const prevField = Boolean(rows[i - 1].querySelector('.field'));
+        const field = Boolean(rows[i].querySelector('.field'));
+        const top = parseFloat(getComputedStyle(rows[i]).borderTopWidth) || 0;
+        if ((prevField || field) && top > 0) problems.push('double divider');
+        if (!prevField && !field && top < 1) problems.push('missing chip line');
+      }
+    }
+    for (const entry of document.querySelectorAll('.month-group article')) {
+      const top = parseFloat(getComputedStyle(entry).borderTopWidth) || 0;
+      if (top > 0) problems.push('entry border');
+    }
+    return problems;
+  });
+  assert.deepEqual(problems, []);
 }
 
 async function reset(page) {
@@ -679,12 +895,26 @@ async function main() {
     await page.emulateMediaFeatures([{ name: 'prefers-color-scheme', value: 'dark' }]);
     await page.reload({ waitUntil: 'networkidle0' });
     await page.waitForSelector('#month-title');
-    const dark = await page.evaluate(() => getComputedStyle(document.body).backgroundColor);
-    assert.equal(dark, 'rgb(18, 18, 18)');
+    const dark = await page.evaluate(() => ({
+      bg: getComputedStyle(document.body).backgroundColor,
+      mode: document.documentElement.dataset.mode,
+      theme: document.documentElement.dataset.theme,
+      color: document.querySelector('meta[name="theme-color"]').content
+    }));
+    assert.equal(dark.bg, 'rgb(18, 18, 18)');
+    assert.equal(dark.mode, 'dark');
+    assert.equal(dark.theme, 'system');
+    assert.equal(dark.color, '#121212');
     await page.emulateMediaFeatures([{ name: 'prefers-color-scheme', value: 'light' }]);
     await page.reload({ waitUntil: 'networkidle0' });
-    const light = await page.evaluate(() => getComputedStyle(document.body).backgroundColor);
-    assert.equal(light, 'rgb(245, 245, 247)');
+    const light = await page.evaluate(() => ({
+      bg: getComputedStyle(document.body).backgroundColor,
+      mode: document.documentElement.dataset.mode,
+      color: document.querySelector('meta[name="theme-color"]').content
+    }));
+    assert.equal(light.bg, 'rgb(245, 245, 247)');
+    assert.equal(light.mode, 'light');
+    assert.equal(light.color, '#f5f5f7');
 
     await page.evaluate(() => {
       localStorage.setItem('figure-cap.v1', JSON.stringify({
@@ -762,14 +992,141 @@ async function main() {
     await page.waitForFunction(() => [...document.querySelectorAll('[data-fx-toggle]')].every((el) => el.hidden || el.closest('[hidden]')));
     await assertTypeScale(page);
     await assertAlignment(page);
+    await assertSingleDividers(page);
+    await assertNoFocusZoom(page);
+    await assertShell(page);
     await shot(page, 'log-add', '#log-form .group');
+    await page.evaluate(() => { document.getElementById('main').scrollTop = 240; });
+    await go(page, '#home', '#left-value');
+    assert.equal(await page.evaluate(() => document.getElementById('main').scrollTop), 0);
 
-    await page.setViewport({ width: 320, height: 700, isMobile: true, hasTouch: true, deviceScaleFactor: 2 });
-    for (const [hash, ready] of [['#home', '#left-value'], ['#log', '#field-name'], ['#wish', '#wish-name'], ['#sell', '#sale-name'], ['#settings', '#field-cap']]) {
-      await go(page, hash, ready);
-      await assertNoOverflow(page);
-      await assertTapTargets(page);
-      await assertTextFits(page);
+    await page.evaluate(() => {
+      const data = JSON.parse(localStorage.getItem('figure-cap.v1'));
+      data.forSale = [{
+        id: 'sale-1',
+        name: 'Miku',
+        condition: 'MISB',
+        price: 80,
+        originalAmount: 80,
+        currency: 'MYR',
+        fxRate: 1,
+        status: 'listed',
+        createdAt: '2026-10-01T00:00:00.000Z',
+        updatedAt: '2026-10-01T00:00:00.000Z'
+      }];
+      localStorage.setItem('figure-cap.v1', JSON.stringify(data));
+      localStorage.setItem('figure-cap.price-checks.local.v1', JSON.stringify([{
+        for_sale_id: 'sale-1',
+        figure: 'Miku',
+        condition: 'MISB',
+        low_rm: 40,
+        typical_rm: 55,
+        high_rm: 80,
+        rrp: 'RM 90',
+        sources: 'Carousell',
+        checked_at: '2026-10-26T00:00:00.000Z'
+      }]));
+    });
+
+    await go(page, '#settings', '#theme-label');
+    await clickLabel(page, 'Dark');
+    await page.waitForFunction(() => document.documentElement.dataset.mode === 'dark');
+    assert.equal(await page.evaluate(() => localStorage.getItem('figure-cap.theme')), 'dark');
+    assert.equal(await page.evaluate(() => document.querySelector('meta[name="theme-color"]').content), '#121212');
+    const darkChip = await page.evaluate(() => {
+      const input = document.querySelector('input[name="theme"][value="dark"]');
+      const style = getComputedStyle(input.closest('.chip'));
+      return { bg: style.backgroundColor, color: style.color, checked: input.checked };
+    });
+    assert.equal(darkChip.checked, true);
+    assert.equal(darkChip.bg, 'rgb(244, 244, 245)');
+    assert.equal(darkChip.color, 'rgb(20, 20, 20)');
+    await page.emulateMediaFeatures([{ name: 'prefers-color-scheme', value: 'light' }]);
+    await page.reload({ waitUntil: 'networkidle0' });
+    await page.waitForSelector('#theme-label');
+    assert.equal(await page.evaluate(() => document.documentElement.dataset.mode), 'dark');
+    await clickLabel(page, 'Light');
+    await page.waitForFunction(() => document.documentElement.dataset.mode === 'light');
+    const lightChip = await page.evaluate(() => {
+      const input = document.querySelector('input[name="theme"][value="light"]');
+      const style = getComputedStyle(input.closest('.chip'));
+      return { bg: style.backgroundColor, color: style.color };
+    });
+    assert.equal(lightChip.bg, 'rgb(20, 20, 20)');
+    assert.equal(lightChip.color, 'rgb(255, 255, 255)');
+    await page.emulateMediaFeatures([{ name: 'prefers-color-scheme', value: 'dark' }]);
+    await page.reload({ waitUntil: 'networkidle0' });
+    await page.waitForSelector('#theme-label');
+    assert.equal(await page.evaluate(() => document.documentElement.dataset.mode), 'light');
+    await clickLabel(page, 'Match phone');
+    assert.equal(await page.evaluate(() => localStorage.getItem('figure-cap.theme')), 'system');
+    await page.emulateMediaFeatures([{ name: 'prefers-color-scheme', value: 'light' }]);
+    await page.evaluate(() => {
+      const media = window.matchMedia('(prefers-color-scheme: dark)');
+      media.dispatchEvent(new Event('change'));
+    });
+    await page.waitForFunction(() => document.documentElement.dataset.mode === 'light');
+    await page.emulateMediaFeatures([{ name: 'prefers-color-scheme', value: 'dark' }]);
+    await page.evaluate(() => {
+      const media = window.matchMedia('(prefers-color-scheme: dark)');
+      media.dispatchEvent(new Event('change'));
+    });
+    await page.waitForFunction(() => document.documentElement.dataset.mode === 'dark');
+    const saved = await page.evaluate(() => JSON.parse(localStorage.getItem('figure-cap.v1')).settings);
+    assert.equal(saved.theme, undefined);
+    assert.equal(Object.hasOwn(saved, 'theme'), false);
+
+    const screens = [
+      ['#home', '#left-value'],
+      ['#entries', '#chart'],
+      ['#log', '#field-name'],
+      ['#wish', '#wish-name'],
+      ['#sell', 'article.block'],
+      ['#edit-sale/sale-1', '#sale-name'],
+      ['#settings', '#theme-label']
+    ];
+    for (const mode of ['dark', 'light']) {
+      await page.evaluate((next) => {
+        localStorage.setItem('figure-cap.theme', next);
+      }, mode);
+      await page.emulateMediaFeatures([{ name: 'prefers-color-scheme', value: mode === 'dark' ? 'light' : 'dark' }]);
+      await page.reload({ waitUntil: 'networkidle0' });
+      assert.equal(await page.evaluate(() => document.documentElement.dataset.mode), mode);
+      for (const [hash, ready] of screens) {
+        await go(page, hash, ready);
+        if (hash === '#log') {
+          await clickLabel(page, 'Pre-order');
+          await assertFocusRing(page, '#field-name');
+        }
+        if (hash === '#settings') await assertFocusRing(page, '#field-cap');
+        await assertContrast(page);
+        await assertTypeScale(page);
+        await assertNoOverflow(page);
+        await assertSingleDividers(page);
+      }
+    }
+
+    await page.evaluate(() => localStorage.setItem('figure-cap.theme', 'light'));
+    await page.emulateMediaFeatures([{ name: 'prefers-color-scheme', value: 'light' }]);
+    for (const width of [320, 360, 390]) {
+      await page.setViewport({ width, height: 700, isMobile: true, hasTouch: true, deviceScaleFactor: 2 });
+      for (const [hash, ready] of [
+        ['#home', '#left-value'],
+        ['#log', '#field-name'],
+        ['#entries', '#chart'],
+        ['#edit/over', '#field-name'],
+        ['#wish', '#wish-name'],
+        ['#plan', '#plan-summary'],
+        ['#sell', '#sale-name'],
+        ['#edit-sale/sale-1', '#sale-name'],
+        ['#settings', '#field-cap']
+      ]) {
+        await go(page, hash, ready);
+        if (hash === '#log') await clickLabel(page, 'Pre-order');
+        await assertNoOverflow(page);
+        await assertTapTargets(page);
+        await assertTextFits(page);
+      }
     }
 
     const sw = await page.evaluate(async () => {

@@ -78,6 +78,7 @@ import {
   syncStatusLabel,
   wishRow
 } from './sync.js';
+import { applyTheme, readTheme, writeTheme } from './theme.js';
 import {
   currentMonth,
   formatDay,
@@ -110,10 +111,12 @@ let lastRouteKey = '';
 let saving = false;
 
 export function start() {
+  bindTheme();
   document.addEventListener('click', onClick);
   document.addEventListener('submit', onSubmit);
   document.addEventListener('input', onInput);
   document.addEventListener('change', onChange);
+  document.addEventListener('focusin', onFieldFocus);
   window.addEventListener('hashchange', () => render());
   const dialog = document.getElementById('dialog');
   dialog.addEventListener('click', (event) => {
@@ -152,7 +155,48 @@ export function render() {
   document.querySelectorAll('[data-money]').forEach((block) => updateFxHint(block));
   if (route.name === 'sell' || route.name === 'edit-sale') queueCheckRefresh();
 
-  if (routeChanged) window.scrollTo(0, 0);
+  if (routeChanged) scrollPageToTop();
+}
+
+function scrollPageToTop() {
+  const main = document.getElementById('main');
+  if (main) main.scrollTop = 0;
+  window.scrollTo(0, 0);
+}
+
+function prefersDark() {
+  return window.matchMedia('(prefers-color-scheme: dark)').matches;
+}
+
+function bindTheme() {
+  applyTheme(readTheme(localStorage), prefersDark());
+  const media = window.matchMedia('(prefers-color-scheme: dark)');
+  const follow = () => {
+    if (readTheme(localStorage) !== 'system') return;
+    applyTheme('system', media.matches);
+  };
+  if (media.addEventListener) media.addEventListener('change', follow);
+  else media.addListener(follow);
+}
+
+function onFieldFocus(event) {
+  const el = event.target;
+  if (!(el instanceof HTMLElement)) return;
+  if (!el.matches('input, select, textarea')) return;
+  if (el.matches('[type="checkbox"], [type="radio"], [type="file"], [type="hidden"]')) return;
+  const scroller = document.getElementById('main');
+  if (!scroller || !scroller.contains(el)) return;
+  const reveal = () => {
+    if (!el.isConnected) return;
+    const rect = el.getBoundingClientRect();
+    const box = scroller.getBoundingClientRect();
+    const navTop = document.querySelector('.nav')?.getBoundingClientRect().top ?? window.innerHeight;
+    const visibleBottom = Math.min(navTop - 12, box.bottom);
+    if (rect.bottom > visibleBottom) scroller.scrollTop += rect.bottom - visibleBottom + 12;
+    else if (rect.top < box.top + 8) scroller.scrollTop -= (box.top + 8) - rect.top;
+  };
+  requestAnimationFrame(reveal);
+  window.setTimeout(reveal, 300);
 }
 
 function parseRoute() {
@@ -944,6 +988,14 @@ function settingsView(data, corrupt) {
       <h2>Settings</h2>
       ${corrupt ? '<p class="banner" id="corrupt-note">Saved data on this device could not be read.</p>' : ''}
       <form class="panel" id="settings-form" novalidate>
+        <div data-edge>
+          <p class="kicker" id="theme-label">Theme</p>
+          ${chips('theme', [
+            { value: 'light', label: 'Light' },
+            { value: 'dark', label: 'Dark' },
+            { value: 'system', label: 'Match phone' }
+          ], readTheme(localStorage), 'Theme')}
+        </div>
         <label class="field" data-edge for="field-cap">Monthly cap (RM)
           <input id="field-cap" name="cap" inputmode="decimal" autocomplete="off" value="${esc(settings.monthlyCap.toFixed(2))}">
           <span class="meta">The limit for each calendar month, in Malaysia time. It starts at RM 400.00.</span>
@@ -1076,8 +1128,8 @@ function selectOptions(options, selected) {
   return options.map((option) => `<option value="${esc(option.value)}" ${option.value === selected ? 'selected' : ''}>${esc(option.label)}</option>`).join('');
 }
 
-function chips(name, options, selected) {
-  return `<div class="chips" data-edge role="radiogroup" aria-label="${esc(name)}">${options.map((option) => `
+function chips(name, options, selected, label = name) {
+  return `<div class="chips" data-edge role="radiogroup" aria-label="${esc(label)}">${options.map((option) => `
     <label class="chip">
       <input type="radio" name="${esc(name)}" value="${esc(option.value)}" ${option.value === selected ? 'checked' : ''}>
       <span>${esc(option.label)}</span>
@@ -1155,6 +1207,11 @@ function onInput(event) {
 
 function onChange(event) {
   const target = event.target;
+  if (target.name === 'theme' && target.form?.id === 'settings-form') {
+    writeTheme(localStorage, target.value);
+    applyTheme(target.value, prefersDark());
+    return;
+  }
   if (target.matches?.('[data-action="plan-toggle"]')) {
     if (target.checked) planIds.add(target.dataset.id);
     else planIds.delete(target.dataset.id);
