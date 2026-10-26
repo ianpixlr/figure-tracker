@@ -2528,7 +2528,14 @@ async function main() {
         nameSize: getComputedStyle(name).fontSize,
         priceSize: getComputedStyle(latest.querySelector('.block-value')).fontSize,
         metaSize: getComputedStyle(latest.querySelector('.meta')).fontSize,
-        arrow: latest.querySelector('.arrow')?.getAttribute('href') || '',
+        arrow: Boolean(latest.querySelector('.arrow')),
+        buttons: [...latest.querySelectorAll('.btn-row a, .btn-row button')].map((el) => el.textContent.trim()),
+        fullWidth: (() => {
+          const button = latest.querySelector('.btn-row a, .btn-row button');
+          const style = getComputedStyle(latest);
+          const inner = latest.getBoundingClientRect().width - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight);
+          return Math.abs(button.getBoundingClientRect().width - inner) <= 2;
+        })(),
         logArrow: Boolean(document.querySelector('a.arrow[aria-label="Log a purchase"]'))
       };
     });
@@ -2538,7 +2545,9 @@ async function main() {
     assert.equal(homeLatest.latest[2].text, 'Soundwave (Laserbeak)');
     assert.equal(homeLatest.latest[3].text, 'RM 42.31');
     assert.equal(homeLatest.latest[4].text, 'CN¥69.48 · PinDuoDuo');
-    assert.equal(homeLatest.arrow, '#edit/soundwave');
+    assert.equal(homeLatest.arrow, false);
+    assert.deepEqual(homeLatest.buttons, ['Edit']);
+    assert.equal(homeLatest.fullWidth, true);
     assert.equal(homeLatest.logArrow, false);
     assert.deepEqual(homeLatest.ytd.map((row) => row.kind), ['tags', 'other', 'price', 'count']);
     assert.match(homeLatest.ytd[1].text, /Year to date/);
@@ -2560,6 +2569,45 @@ async function main() {
     await assertNoOverflow(page);
     await assertTypeScale(page);
     await page.screenshot({ path: `${REPORTS}/home-latest.png` });
+
+    const homeBeforePay = await page.evaluate(() => localStorage.getItem('figure-cap.v1'));
+    await page.evaluate(() => {
+      const data = JSON.parse(localStorage.getItem('figure-cap.v1'));
+      const item = data.purchases.find((row) => row.id === 'soundwave');
+      Object.assign(item, {
+        boughtAs: 'preorder',
+        estFullPrice: 80,
+        estFullOriginalAmount: 80,
+        estFullCurrency: 'MYR',
+        estFullFxRate: 1,
+        estFullFxDate: '2026-10-04',
+        depositAmountRm: 20,
+        depositOriginalAmount: 20,
+        depositCurrency: 'MYR',
+        depositFxRate: 1,
+        depositFxDate: '2026-10-04',
+        depositDate: '2026-10-04'
+      });
+      localStorage.setItem('figure-cap.v1', JSON.stringify(data));
+    });
+    await go(page, '#entries', '[data-id="soundwave"]');
+    const payEntry = await page.evaluate(() => {
+      const card = document.querySelector('.month-group [data-id="soundwave"]');
+      return [...card.querySelectorAll('.btn-row a, .btn-row button')].map((el) => el.textContent.trim());
+    });
+    assert.deepEqual(payEntry, ['Pay balance', 'Delete']);
+    await go(page, '#home', '[data-id="soundwave"]');
+    const payHome = await page.evaluate(() => {
+      const latest = document.querySelector('[data-id="soundwave"]');
+      return {
+        buttons: [...latest.querySelectorAll('.btn-row a, .btn-row button')].map((el) => el.textContent.trim()),
+        arrow: Boolean(latest.querySelector('.arrow'))
+      };
+    });
+    assert.deepEqual(payHome.buttons, ['Pay balance']);
+    assert.equal(payHome.arrow, false);
+    await page.evaluate((saved) => localStorage.setItem('figure-cap.v1', saved), homeBeforePay);
+    await go(page, '#entries', '#chart');
 
     await go(page, '#wish', '[data-id="wish-sw"]');
     const wishOrder = await page.evaluate(() => {

@@ -317,7 +317,7 @@ function homeView(data) {
       </div>
       ${month.usedUp ? `<p class="banner" id="cap-message">${esc(CAP_USED_MESSAGE)}</p>` : ''}
       <a class="btn btn-primary" id="log-link" href="#log">Log a purchase</a>
-      ${latest ? purchaseCard(latest, 0, { arrow: true }) : `
+      ${latest ? purchaseCard(latest, 0, { home: true }) : `
         <article class="block">
           <div class="card-head" data-edge>
             <div class="tags"><span class="tag">Collection</span></div>
@@ -683,9 +683,9 @@ function purchaseCard(purchase, index, options = {}) {
   const pay = purchase.boughtAs === 'preorder' && purchase.preorderStatus === 'deposit paid'
     ? `<a class="btn btn-primary" href="#edit/${encodeURIComponent(purchase.id)}">Pay balance</a>`
     : `<a class="btn btn-ghost" href="#edit/${encodeURIComponent(purchase.id)}">Edit</a>`;
-  const arrow = options.arrow
-    ? `<a class="arrow" href="#edit/${encodeURIComponent(purchase.id)}" aria-label="Edit ${esc(purchase.name)}">${ARROW}</a>`
-    : '';
+  const remove = options.home
+    ? ''
+    : `<button class="btn btn-ghost" type="button" data-action="delete-purchase" data-id="${esc(purchase.id)}">Delete</button>`;
   return `
     <article class="block" data-id="${esc(purchase.id)}">
       <div class="card-head" data-edge>
@@ -694,7 +694,6 @@ function purchaseCard(purchase, index, options = {}) {
           ${purchase.condition ? `<span class="tag">${esc(purchase.condition)}</span>` : ''}
           ${purchase.preorderStatus ? `<span class="tag">${esc(preorderStatusLabel(purchase.preorderStatus))}</span>` : ''}
         </div>
-        ${arrow}
       </div>
       ${identityMeta([formatDay(purchase.date), purchase.brand, purchase.series])}
       <h3 data-edge>${esc(purchase.name)}</h3>
@@ -702,9 +701,9 @@ function purchaseCard(purchase, index, options = {}) {
       ${sourceLine(purchase)}
       ${preorder ? `<p class="meta money-note" data-edge>${withAmounts(preorder)}</p>` : ''}
       ${purchase.notes ? `<p class="note" data-edge>${withAmounts(purchase.notes)}</p>` : ''}
-      <div class="btn-row">
+      <div class="btn-row${options.home ? ' solo' : ''}">
         ${pay}
-        <button class="btn btn-ghost" type="button" data-action="delete-purchase" data-id="${esc(purchase.id)}">Delete</button>
+        ${remove}
       </div>
     </article>
   `;

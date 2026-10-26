@@ -1070,6 +1070,8 @@ button:disabled { opacity: 0.45; cursor: not-allowed; }
   margin-top: 12px;
 }
 
+.btn-row.solo { grid-template-columns: 1fr; }
+
 .search-pills {
   display: flex;
   flex-wrap: wrap;
