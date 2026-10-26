@@ -15,6 +15,7 @@ import {
   waitStatus,
   yearSpent
 } from '../js/budget.js';
+import { categoryTotals, filterPurchases, latestPriceCheck } from '../js/catalog.js';
 import { formatRM, parseMoney } from '../js/money.js';
 import {
   emptyData,
@@ -264,18 +265,85 @@ test('storage defaults, import, and corrupt files', () => {
   assert.equal(clean.settings.rollover, true);
   assert.equal(clean.purchases.length, 1);
   assert.equal(clean.purchases[0].mood, '');
-  assert.equal(clean.purchases[0].note, 'shelf');
-  assert.equal(clean.purchases[0].type, 'preorder');
+  assert.equal(clean.purchases[0].notes, 'shelf');
+  assert.equal(clean.purchases[0].boughtAs, 'preorder');
+  assert.equal(clean.purchases[0].status, 'preordered');
+  assert.equal(clean.purchases[0].currency, 'MYR');
+  assert.equal(clean.purchases[0].originalAmount, 40);
+  assert.equal(clean.purchases[0].price, 40);
+  assert.equal(clean.purchases[0].fxRate, 1);
+  assert.equal(clean.purchases[0].fxOverridden, false);
+  assert.equal(clean.purchases[0].fxDate, '2026-08-02');
   assert.equal(clean.wishlist[0].name, 'Grail');
   assert.equal(clean.wishlist[0].priority, 'really');
+  assert.equal(clean.wishlist[0].currency, 'MYR');
+  assert.equal(clean.wishlist[0].price, 80);
+  assert.deepEqual(clean.forSale, []);
 
   save(clean, store);
   assert.equal(load('2026-10', store).data.purchases[0].price, 40);
-  assert.equal(exportPayload(clean, '2026-10-23T00:00:00.000Z').version, 1);
+  assert.equal(exportPayload(clean, '2026-10-23T00:00:00.000Z').version, 2);
+
+  const legacyStore = memory();
+  legacyStore.setItem(STORAGE_KEY, JSON.stringify({
+    settings: { monthlyCap: 400, waitHours: 0, rollover: false, trackingStart: '2026-10' },
+    purchases: [{
+      id: 'old',
+      name: 'Asuka',
+      price: 80,
+      date: '2026-10-02',
+      type: 'bought',
+      note: 'window',
+      mood: 'excited',
+      createdAt: '2026-10-02T00:00:00.000Z'
+    }],
+    wishlist: []
+  }));
+  const migrated = load('2026-10', legacyStore);
+  assert.equal(migrated.data.purchases[0].notes, 'window');
+  assert.equal(migrated.data.purchases[0].boughtAs, 'new');
+  assert.equal(migrated.data.purchases[0].status, 'received');
+  assert.equal(migrated.data.purchases[0].mood, 'excited');
+  assert.equal(migrated.data.purchases[0].price, 80);
+  const rewritten = JSON.parse(legacyStore.getItem(STORAGE_KEY));
+  assert.equal(rewritten.purchases[0].notes, 'window');
+  assert.equal(rewritten.purchases[0].note, undefined);
+  assert.ok(Array.isArray(rewritten.forSale));
 
   store.setItem(STORAGE_KEY, '{');
   const broken = load('2026-10', store);
   assert.equal(broken.corrupt, true);
   assert.equal(store.getItem(STORAGE_KEY), '{');
-  assert.deepEqual(emptyData('2026-11').settings.waitHours, 0);
+  assert.equal(emptyData('2026-11').settings.waitHours, 0);
+  assert.equal(emptyData('2026-11').settings.syncUrl, '');
+  assert.deepEqual(emptyData('2026-11').forSale, []);
+});
+
+test('filters, category totals, and the latest price check', () => {
+  const purchases = [
+    { date: '2026-10-02', brand: 'Good Smile', series: 'Eva', figureType: 'nendoroid', price: 80 },
+    { date: '2025-10-02', brand: 'Good Smile', series: 'Eva', figureType: 'scale', price: 400 },
+    { date: '2026-11-02', brand: 'Bandai', series: 'Gundam', figureType: '', price: 30 }
+  ];
+  assert.equal(filterPurchases(purchases, { year: '2026', month: '10' }).length, 1);
+  assert.equal(filterPurchases(purchases, { month: '10' }).length, 2);
+  assert.equal(filterPurchases(purchases, { brand: 'Bandai', series: 'Gundam' }).length, 1);
+  const totals = categoryTotals(filterPurchases(purchases, { year: '2026' }));
+  assert.equal(totals.find((row) => row.figureType === 'nendoroid').total, 80);
+  assert.equal(totals.find((row) => row.figureType === '').label, 'Unspecified');
+
+  const listing = { id: 's1', name: 'Asuka', condition: 'MISB' };
+  const checks = [
+    { for_sale_id: 's1', figure: 'Other', condition: 'Loose', low_rm: 10, checked_at: '2026-10-01' },
+    { for_sale_id: 's1', figure: 'Other', condition: 'Loose', low_rm: 12, checked_at: '2026-10-20 09:00' },
+    { for_sale_id: '', figure: 'Asuka', condition: 'MISB', low_rm: 99, checked_at: '2026-10-25' }
+  ];
+  assert.equal(latestPriceCheck(listing, checks).low_rm, 12);
+  const byName = latestPriceCheck({ id: 's2', name: 'Rei', condition: 'Loose' }, [
+    { for_sale_id: 'nope', figure: 'rei', condition: 'loose', typical_rm: 40, checked_at: '2026-10-01' },
+    { figure: 'Rei', condition: 'Loose', typical_rm: 55, checked_at: '2026-10-02' }
+  ]);
+  assert.equal(byName.typical_rm, 55);
+  assert.equal(latestPriceCheck({ id: 'x', name: 'Nope', condition: 'MIB' }, checks), null);
+  assert.equal(latestPriceCheck(listing, []), null);
 });

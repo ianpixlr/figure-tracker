@@ -1,10 +1,22 @@
 import { render, start } from './ui.js';
 import { load } from './store.js';
-import { now, setNow, todayYMD } from './time.js';
+import { startAutoSync } from './sync.js';
+import { currentMonth, now, setNow, todayYMD } from './time.js';
 
 start();
+startAutoSync(() => {
+  const loaded = load(currentMonth());
+  return loaded.corrupt ? null : loaded.data;
+});
 
 if ('serviceWorker' in navigator) {
+  let reloaded = false;
+  const hadController = Boolean(navigator.serviceWorker.controller);
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    if (!hadController || reloaded) return;
+    reloaded = true;
+    window.location.reload();
+  });
   window.addEventListener('load', () => {
     navigator.serviceWorker.register('./sw.js').catch(() => {});
   });
