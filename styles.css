@@ -62,7 +62,6 @@
   --accent: #141414;
   /* ~49px of icon and label, then about 20px under the labels on a 34px inset. */
   --nav-pad-bottom: max(calc(env(safe-area-inset-bottom, 0px) - 14px), 8px);
-  --nav-h: calc(51px + var(--nav-pad-bottom));
   --display: "Archivo Black", "Archivo Fallback", "Arial Black", sans-serif;
   --sans: system-ui, sans-serif;
 }
@@ -108,7 +107,6 @@ html[data-mode="dark"] {
 [hidden] { display: none !important; }
 
 html {
-  /* 100% is shorter than the screen in an iOS standalone app, so bottom:0 floats. */
   height: 100vh;
   height: -webkit-fill-available;
   height: 100dvh;
@@ -142,6 +140,19 @@ body {
   font-size: var(--font-small);
   font-weight: 400;
   line-height: 1.35;
+}
+
+/* In standalone the layout viewport can be about one status-bar shorter than
+   the phone. --app-h is the taller of those heights, so the column fills the screen. */
+html.standalone,
+html.standalone body,
+html.standalone .app {
+  height: var(--app-h, 100dvh);
+  min-height: var(--app-h, 100dvh);
+}
+
+html.standalone body {
+  bottom: auto;
 }
 
 body, body * {
@@ -294,7 +305,7 @@ main {
   min-height: 0;
   min-width: 0;
   padding-top: 0;
-  padding-bottom: calc(var(--nav-h) + 8px);
+  padding-bottom: 0;
   overflow-x: hidden;
   overflow-y: auto;
   overscroll-behavior: none;
@@ -353,7 +364,14 @@ a { color: inherit; }
   justify-content: space-between;
   align-items: baseline;
   gap: 12px;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
   margin: var(--step) 0 8px;
+  margin-left: 0;
+  margin-right: 0;
+  padding-left: 0;
+  padding-right: 0;
 }
 
 .bar {
@@ -777,7 +795,7 @@ html[data-mode="dark"] .block {
 
 input, select, textarea, .btn, .chip, .search {
   scroll-margin-top: 16px;
-  scroll-margin-bottom: calc(var(--nav-h) + 8px);
+  scroll-margin-bottom: 16px;
 }
 
 input, select, textarea {
@@ -1094,11 +1112,44 @@ button:disabled { opacity: 0.45; cursor: not-allowed; }
   cursor: pointer;
 }
 
+.stack > h2,
+.lede > h2,
+section > h2,
+.chart-top, .item-top, .pick-top, .month-head {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  margin-left: 0;
+  margin-right: 0;
+  padding-left: 0;
+  padding-right: 0;
+}
+
 .chart-top, .item-top, .pick-top, .month-head {
   display: flex;
   justify-content: space-between;
   align-items: baseline;
   gap: 12px;
+}
+
+.chart-top > :first-child,
+.item-top > :first-child,
+.pick-top > :first-child,
+.month-head > :first-child,
+.progress-meta > :first-child {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chart-top > :last-child,
+.item-top > :last-child,
+.pick-top > :last-child,
+.month-head > :last-child,
+.progress-meta > :last-child {
+  flex: 0 0 auto;
+  max-width: 100%;
 }
 
 .month-head { margin-top: 8px; }
@@ -1132,14 +1183,12 @@ button:disabled { opacity: 0.45; cursor: not-allowed; }
 .plan-headline { margin: 4px 0 0; }
 
 .nav {
-  position: fixed;
-  left: 50%;
-  bottom: 0;
+  position: relative;
+  flex: 0 0 auto;
   z-index: 3;
   display: grid;
   grid-template-columns: repeat(5, minmax(0, 1fr));
-  width: min(480px, 100%);
-  transform: translateX(-50%);
+  width: 100%;
   align-items: center;
   min-height: 0;
   height: auto;

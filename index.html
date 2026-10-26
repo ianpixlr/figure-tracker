@@ -30,6 +30,49 @@
       if (scheme) scheme.setAttribute('content', mode);
     })();
   </script>
+  <script>
+    (function () {
+      var textEntry = function (el) {
+        if (!el || !el.matches) return false;
+        if (!el.matches('input, textarea, select')) return false;
+        if (el.matches('input[type="checkbox"], input[type="radio"], input[type="file"], input[type="hidden"]')) return false;
+        return true;
+      };
+      var standaloneNow = function () {
+        try {
+          return navigator.standalone === true || matchMedia('(display-mode: standalone)').matches;
+        } catch (e) {
+          return false;
+        }
+      };
+      var fit = function () {
+        var root = document.documentElement;
+        if (!standaloneNow()) {
+          root.classList.remove('standalone');
+          root.style.removeProperty('--app-h');
+          return;
+        }
+        root.classList.add('standalone');
+        if (textEntry(document.activeElement)) return;
+        var inner = window.innerHeight || 0;
+        var screenH = 0;
+        try {
+          if (matchMedia('(orientation: portrait)').matches) screenH = screen.height || 0;
+        } catch (e) {}
+        var prior = root.style.getPropertyValue('--app-h');
+        root.style.removeProperty('--app-h');
+        var client = root.clientHeight || 0;
+        var height = Math.max(inner, client, screenH);
+        if (height > 0) root.style.setProperty('--app-h', height + 'px');
+        else if (prior) root.style.setProperty('--app-h', prior);
+      };
+      window.__figureCapFitShell = fit;
+      fit();
+      addEventListener('resize', fit);
+      addEventListener('orientationchange', fit);
+      if (window.visualViewport) visualViewport.addEventListener('resize', fit);
+    })();
+  </script>
   <link rel="icon" href="icons/favicon-32.png" type="image/png" sizes="32x32">
   <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
   <link rel="manifest" href="manifest.webmanifest">
@@ -57,14 +100,14 @@
         <p>Figure Cap needs JavaScript. Your figures stay on this device once it runs.</p>
       </noscript>
     </main>
+    <nav class="nav" aria-label="Primary">
+      <a href="#home" data-route="home"><svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M4 11.2 12 4l8 7.2V20a1 1 0 0 1-1 1h-5.2v-6.2H10.2V21H5a1 1 0 0 1-1-1v-8.8z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"></path></svg>Home</a>
+      <a href="#log" data-route="log"><svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M8 7h11M8 12h11M8 17h11M4.5 7h.01M4.5 12h.01M4.5 17h.01" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"></path></svg>Log</a>
+      <a href="#wish" data-route="wish"><svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M12 20s-7-4.4-7-9.1C5 8 6.8 6.2 9.2 6.2c1.3 0 2.4.6 2.8 1.6.4-1 1.5-1.6 2.8-1.6C17.2 6.2 19 8 19 10.9 19 15.6 12 20 12 20z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"></path></svg>Wishlist</a>
+      <a href="#sell" data-route="sell"><svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M8 7h8l1 13H7L8 7zM9 7a3 3 0 0 1 6 0" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"></path></svg>Sell</a>
+      <a href="#settings" data-route="settings"><svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><circle cx="12" cy="12" r="3" fill="none" stroke="currentColor" stroke-width="1.8"></circle><path d="M12 3.5v2.2M12 18.3v2.2M3.5 12h2.2M18.3 12h2.2M6 6l1.6 1.6M16.4 16.4 18 18M18 6l-1.6 1.6M7.6 16.4 6 18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"></path></svg>Settings</a>
+    </nav>
   </div>
-  <nav class="nav" aria-label="Primary">
-    <a href="#home" data-route="home"><svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M4 11.2 12 4l8 7.2V20a1 1 0 0 1-1 1h-5.2v-6.2H10.2V21H5a1 1 0 0 1-1-1v-8.8z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"></path></svg>Home</a>
-    <a href="#log" data-route="log"><svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M8 7h11M8 12h11M8 17h11M4.5 7h.01M4.5 12h.01M4.5 17h.01" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"></path></svg>Log</a>
-    <a href="#wish" data-route="wish"><svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M12 20s-7-4.4-7-9.1C5 8 6.8 6.2 9.2 6.2c1.3 0 2.4.6 2.8 1.6.4-1 1.5-1.6 2.8-1.6C17.2 6.2 19 8 19 10.9 19 15.6 12 20 12 20z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"></path></svg>Wishlist</a>
-    <a href="#sell" data-route="sell"><svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M8 7h8l1 13H7L8 7zM9 7a3 3 0 0 1 6 0" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"></path></svg>Sell</a>
-    <a href="#settings" data-route="settings"><svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><circle cx="12" cy="12" r="3" fill="none" stroke="currentColor" stroke-width="1.8"></circle><path d="M12 3.5v2.2M12 18.3v2.2M3.5 12h2.2M18.3 12h2.2M6 6l1.6 1.6M16.4 16.4 18 18M18 6l-1.6 1.6M7.6 16.4 6 18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"></path></svg>Settings</a>
-  </nav>
   <dialog id="dialog"></dialog>
   <script type="module" src="js/app.js"></script>
 </body>
