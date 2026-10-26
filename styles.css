@@ -621,20 +621,37 @@ html[data-mode="dark"] .block {
   white-space: nowrap;
 }
 
-.chip:has(.chip-x) { padding-right: 4px; }
+.chip:has(.chip-x) {
+  padding-right: 6px;
+}
 
-.chip-x {
+.chips .chip-x {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   flex: 0 0 auto;
-  align-self: stretch;
+  align-self: center;
   width: 32px;
-  min-height: 0;
-  margin: 0;
+  min-width: 32px;
+  max-width: 32px;
+  height: 32px;
+  min-height: 32px;
+  margin: 0 0 0 6px;
   padding: 0;
+  overflow: visible;
   border: 0;
-  border-radius: 99px;
+  border-radius: 0;
   background: transparent;
-  color: inherit;
-  cursor: pointer;
+  box-shadow: none;
+  color: var(--muted);
+  appearance: none;
+  letter-spacing: 0;
+  line-height: 1;
+  text-transform: none;
+}
+
+.chip:has(input:checked) .chip-x {
+  color: var(--chip-on-ink);
 }
 
 .tools {
