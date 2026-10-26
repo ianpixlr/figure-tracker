@@ -212,7 +212,9 @@ async function press(page, selector) {
 
 async function clickLabel(page, label) {
   const ok = await page.evaluate((label) => {
+    const shown = (el) => !el.closest('[hidden]') && getComputedStyle(el).display !== 'none';
     const match = [...document.querySelectorAll('label.chip, label.pick, label.checkline')]
+      .filter(shown)
       .find((el) => el.textContent.trim().startsWith(label));
     if (!match) return false;
     match.click();
@@ -566,6 +568,8 @@ async function main() {
     await page.select('#field-price-currency', 'JPY');
     await typeInto(page, '#field-price', '12800');
     await page.waitForFunction(() => document.querySelector('[data-fx-hint]')?.textContent.includes('RM 391.04'));
+    const statementLines = await page.evaluate(() => [...document.querySelectorAll('[data-fx-toggle]')].filter((el) => !el.closest('[hidden]') && !el.hidden).length);
+    assert.equal(statementLines, 1);
     await clickLabel(page, 'Use statement amount');
     await page.waitForSelector('#field-price-rm');
     await typeInto(page, '#field-price-rm', '10');
@@ -653,9 +657,28 @@ async function main() {
     await typeInto(page, '#field-est', '200');
     await typeInto(page, '#field-deposit', '50');
     await page.waitForFunction(() => /Balance due/.test(document.querySelector('[data-balance-due]')?.textContent || ''));
+    const order = await page.evaluate(() => {
+      const name = document.querySelector('#field-name');
+      const bought = [...document.querySelectorAll('.kicker')].find((el) => el.textContent.trim() === 'Bought as');
+      const status = [...document.querySelectorAll('.kicker')].find((el) => el.textContent.trim() === 'Status');
+      const price = document.querySelector('#field-est');
+      const after = Node.DOCUMENT_POSITION_FOLLOWING;
+      return Boolean(name && bought && status && price)
+        && Boolean(name.compareDocumentPosition(bought) & after)
+        && Boolean(bought.compareDocumentPosition(status) & after)
+        && Boolean(status.compareDocumentPosition(price) & after);
+    });
+    assert.equal(order, true);
+    await page.select('#field-est-currency', 'JPY');
+    await page.waitForFunction(() => {
+      const lines = [...document.querySelectorAll('[data-fx-toggle]')].filter((el) => !el.closest('[hidden]') && !el.hidden);
+      return lines.length === 1 && lines[0].textContent.includes('Use the RM amount on your card statement');
+    });
+    await page.select('#field-est-currency', 'MYR');
+    await page.waitForFunction(() => [...document.querySelectorAll('[data-fx-toggle]')].every((el) => el.hidden || el.closest('[hidden]')));
     await assertTypeScale(page);
     await assertAlignment(page);
-    await shot(page, 'log-add', '#field-est');
+    await shot(page, 'log-add', '#log-form .group');
 
     await page.setViewport({ width: 320, height: 700, isMobile: true, hasTouch: true, deviceScaleFactor: 2 });
     for (const [hash, ready] of [['#home', '#left-value'], ['#log', '#field-name'], ['#wish', '#wish-name'], ['#sell', '#sale-name'], ['#settings', '#field-cap']]) {

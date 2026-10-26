@@ -401,6 +401,17 @@ function purchaseForm(purchase, today) {
               <input id="field-name" name="name" maxlength="80" autocomplete="off" autocapitalize="words" value="${esc(value.name)}" required>
             </label>
           </div>
+          <div class="row">
+            <p class="kicker" data-edge>Bought as</p>
+            ${chips('boughtAs', BOUGHT_AS_OPTIONS, value.boughtAs || 'new')}
+            <p class="meta" data-edge data-preorder-note ${preorder ? '' : 'hidden'}>The deposit counts in the month you pay it. The balance counts in the month you pay that.</p>
+          </div>
+          <div class="row">
+            <p class="kicker" data-edge>Status</p>
+            ${chips('status', PURCHASE_STATUSES, value.status || 'received')}
+          </div>
+        </div>
+        <div class="group">
           <div class="row" data-standard ${preorder ? 'hidden' : ''}>
             ${moneyFields({
               label: 'Price',
@@ -444,13 +455,6 @@ function purchaseForm(purchase, today) {
           </div>
         </div>
         <p class="cap-note" data-cap-note></p>
-        <div class="group">
-          <div class="row">
-            <p class="kicker" data-edge>Bought as</p>
-            ${chips('boughtAs', BOUGHT_AS_OPTIONS, value.boughtAs || 'new')}
-            <p class="meta" data-edge data-preorder-note ${preorder ? '' : 'hidden'}>The deposit counts in the month you pay it. The balance counts in the month you pay that.</p>
-          </div>
-        </div>
         <div data-pay-box ${showPay ? '' : 'hidden'}>
           <div class="group">
             <div class="row">
@@ -474,12 +478,6 @@ function purchaseForm(purchase, today) {
           </div>
         </div>
         ${canPay ? '<button class="btn btn-ghost" type="button" data-action="show-pay">Pay balance</button>' : ''}
-        <div class="group">
-          <div class="row">
-            <p class="kicker" data-edge>Status</p>
-            ${chips('status', PURCHASE_STATUSES, value.status || 'received')}
-          </div>
-        </div>
         <details class="group more" ${openMore ? 'open' : ''}>
           <summary data-edge>
             <span class="more-copy">
@@ -999,11 +997,11 @@ function moneyFields({
         </label>
       </div>
       <p class="fx-hint" data-fx-hint></p>
-      <label class="checkline">
+      <label class="checkline" data-fx-toggle ${(currency || 'MYR').toUpperCase() === 'MYR' && !override ? 'hidden' : ''}>
         <input type="checkbox" name="${names.override}" data-fx-override ${override ? 'checked' : ''}>
         <span>
           <span class="check-title">Use statement amount</span>
-          <span class="meta">The ringgit charged on your card. Totals use this instead of the estimate.</span>
+          <span class="meta">Use the RM amount on your card statement</span>
         </span>
       </label>
       <label class="field" for="${esc(amountId)}-rm" data-fx-rm ${override ? '' : 'hidden'}>Statement amount (RM)
@@ -1261,6 +1259,12 @@ async function loadQuote(currency, date) {
   return quote;
 }
 
+function syncStatementLine(block, currency, override) {
+  const line = block.querySelector('[data-fx-toggle]');
+  if (!line) return;
+  line.hidden = currency === 'MYR' && !override;
+}
+
 async function updateFxHint(block) {
   const token = (block._fxToken || 0) + 1;
   block._fxToken = token;
@@ -1270,6 +1274,8 @@ async function updateFxHint(block) {
   const names = moneyNames(block.dataset.prefix || '');
   const original = parseMoney(fieldValue(form, names.amount));
   const currency = (fieldValue(form, names.currency) || 'MYR').toUpperCase();
+  const overrideOn = fieldChecked(form, names.override);
+  syncStatementLine(block, currency, overrideOn);
   const dateName = block.dataset.dateField || 'date';
   const date = block.dataset.historical === 'true' ? fieldValue(form, dateName) : todayYMD();
   const showCap = (price) => {

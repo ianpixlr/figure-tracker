@@ -26,7 +26,7 @@ After the first load the shell also works offline. A sheet sync needs a connecti
 ## Using it
 
 - **Home** shows what is left this month in Malaysia time as `RM 320 / 400` (left, then this month's cap) with `left this month` under it. Whole ringgit amounts on that line drop the `.00`. A bar sits under that, then the latest purchase, balances still due on open pre-orders, and the year to date. Figures with no type count as Other. When the cap is used up it says: "Month done, next purchase waits for the 1st". Going over the cap shows `RM 0 / 400` and, in the small line, `RM 60 over`.
-- **Log** is the collection. The date defaults to today and can be changed for past buys. Name and price are required. Series, brand, type, condition, shop, status, and notes sit under More details. Search plus one Filter button narrows entries by month, year, brand, and series. Edit and delete are on each entry.
+- **Log** is the collection. The date defaults to today and can be changed for past buys. Name is required. Bought as and status come next, then the price, because bought as decides which price fields appear. Series, brand, type, condition, shop, and notes sit under More details. Search plus one Filter button narrows entries by month, year, brand, and series. Edit and delete are on each entry.
 - A **pre-order** asks for an estimated full price, the deposit, and the deposit date. Balance due is the estimate minus the deposit. **Pay balance** records the amount you actually paid and the date. The deposit counts in the month it was paid. The balance counts in the month it was paid. Home adds up balances still due.
 - **Wishlist** items need a name and a price. Priority starts at Really want. Each item shows whether it fits this month. Remove is one tap, with undo. **Plan the month** adds up the figures you pick against the adjusted cap.
 - **Sell** lists a figure with its condition (MISB, MIB, BIB, or Loose), asking price, and notes. Mark it sold with the sold price and date. Price checks typed into the sheet show on the card. Until a check exists, the card says "No price check yet."
@@ -38,7 +38,7 @@ You can save a purchase that goes past the cap. Home will show that the month is
 
 Every price can be MYR or another currency. The quick choices are JPY, USD, CNY, HKD, SGD, KRW, and EUR. The RM equivalent updates as you type. Purchases use the rate for the purchase date. Wishlist and sale prices use today's rate.
 
-Rates come from the European Central Bank via [Frankfurter](https://www.frankfurter.app/). If that is unavailable, the app tries [open.er-api.com](https://www.exchangerate-api.com/). The last good rate is kept on the phone and marked "cached rate" when it is reused. If the card was charged a different ringgit amount, tick **Use statement amount** and enter that figure. The cap, totals, and fits-this-month all use the ringgit value.
+Rates come from the European Central Bank via [Frankfurter](https://www.frankfurter.app/). If that is unavailable, the app tries [open.er-api.com](https://www.exchangerate-api.com/). The last good rate is kept on the phone and marked "cached rate" when it is reused. **Use statement amount** appears once on each amount that is not already in ringgit. Tick it and enter the RM amount on your card statement. The cap, totals, and fits-this-month all use the ringgit value.
 
 Headings use [Archivo Black](https://fonts.google.com/specimen/Archivo+Black) (Open Font License, see `fonts/OFL.txt`).
 
