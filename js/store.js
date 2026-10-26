@@ -3,7 +3,7 @@
 // Existing saves used `type` and `note`. Loading rewrites them into the
 // current shape and keeps the ringgit amount the cap already used.
 
-import { derivedPurchaseStatus, normalizeBoughtAs } from './catalog.js';
+import { cleanCategories, derivedPurchaseStatus, normalizeBoughtAs, normalizeFigureType } from './catalog.js';
 import { fromCents, parseMoney, toCents } from './money.js';
 import { isMonth, isYMD } from './time.js';
 
@@ -11,8 +11,8 @@ export const STORAGE_KEY = 'figure-cap.v1';
 export const MAX_MONEY = 1000000;
 export const MAX_FOREIGN = 100000000;
 
-const FIGURE_TYPES = new Set(['', 'scale', 'nendoroid', 'figma', 'prize', 'model-kit', 'other']);
 const PURCHASE_CONDITIONS = new Set(['', 'MISB', 'MIB', 'BIB', 'Loose', 'Other']);
+const ORDER_TYPES = new Set(['preorder', 'bought', 'purchased', 'new', 'second-hand', 'secondhand']);
 const SALE_CONDITIONS = new Set(['MISB', 'MIB', 'BIB', 'Loose']);
 const PREORDER_STATUS = new Set(['deposit paid', 'fully paid']);
 
@@ -28,7 +28,8 @@ export function emptyData(todayYm) {
       rollover: false,
       overspendPayback: true,
       trackingStart: todayYm,
-      syncUrl: ''
+      syncUrl: '',
+      categories: []
     },
     purchases: [],
     wishlist: [],
@@ -50,8 +51,34 @@ function cleanSettings(source, todayYm) {
     rollover: Boolean(source?.rollover),
     overspendPayback: source?.overspendPayback !== false,
     trackingStart: isMonth(source?.trackingStart) ? source.trackingStart : todayYm,
-    syncUrl: clip(source?.syncUrl, 500)
+    syncUrl: clip(source?.syncUrl, 500),
+    categories: cleanCategories(source?.categories)
   };
+}
+
+function rawFigureType(input) {
+  const explicit = input?.figureType ?? input?.figure_type;
+  if (explicit != null && String(explicit).trim() !== '') return explicit;
+  const legacy = String(input?.type ?? '').trim();
+  const legacyKey = legacy.toLowerCase().replace(/[\s_]+/g, '-');
+  if (!legacy || ORDER_TYPES.has(legacyKey)) return explicit == null ? '' : explicit;
+  return legacy;
+}
+
+export function forgetCategory(data, name) {
+  const key = String(name || '').trim().toLowerCase();
+  const changed = [];
+  data.settings.categories = (data.settings.categories || []).filter((item) => String(item).trim().toLowerCase() !== key);
+  for (const purchase of data.purchases || []) {
+    if (String(purchase.figureType || '').trim().toLowerCase() === key) {
+      purchase.figureType = 'other';
+      changed.push(purchase);
+    }
+  }
+  for (const item of [...(data.wishlist || []), ...(data.forSale || [])]) {
+    if (String(item.figureType || '').trim().toLowerCase() === key) item.figureType = 'other';
+  }
+  return changed;
 }
 
 function flag(value) {
@@ -259,7 +286,7 @@ function hasPreorderDetail(input) {
   ]) != null;
 }
 
-function cleanPurchase(input, seen) {
+function cleanPurchase(input, seen, categories = []) {
   if (!input || typeof input !== 'object') return null;
   const name = clip(input.name, 80);
   const date = String(input.date ?? '');
@@ -267,9 +294,7 @@ function cleanPurchase(input, seen) {
 
   const boughtAs = normalizeBoughtAs(input.boughtAs, input.type);
   const status = derivedPurchaseStatus(boughtAs, '');
-
-  let figureType = FIGURE_TYPES.has(input.figureType) ? input.figureType : '';
-  if (!figureType && FIGURE_TYPES.has(input.type) && input.type) figureType = input.type;
+  const figureType = normalizeFigureType(rawFigureType(input), categories);
 
   const money = cleanMoney(input, date, ['amountRm', 'amount_rm', 'price']);
   if (!money && boughtAs !== 'preorder') return null;
@@ -342,7 +367,12 @@ function cleanPurchase(input, seen) {
   };
 }
 
-function cleanWish(input, seen) {
+function keptFigureType(record, input, categories) {
+  if (!input || (input.figureType == null && input.figure_type == null)) return record;
+  return { ...record, figureType: normalizeFigureType(input.figureType ?? input.figure_type, categories) };
+}
+
+function cleanWish(input, seen, categories = []) {
   if (!input || typeof input !== 'object') return null;
   const name = clip(input.name, 80);
   if (!name) return null;
@@ -350,17 +380,17 @@ function cleanWish(input, seen) {
   const money = cleanMoney(input, addedAt, ['amountRm', 'amount_rm', 'price']);
   if (!money) return null;
   const priority = input.priority === 'must' || input.priority === 'nice' ? input.priority : 'really';
-  return {
+  return keptFigureType({
     id: takeId(input, seen),
     name,
     ...money,
     priority,
     addedAt,
     updatedAt: stamp(input.updatedAt, addedAt)
-  };
+  }, input, categories);
 }
 
-function cleanSale(input, seen) {
+function cleanSale(input, seen, categories = []) {
   if (!input || typeof input !== 'object') return null;
   const name = clip(input.name, 80);
   if (!name) return null;
@@ -389,7 +419,7 @@ function cleanSale(input, seen) {
   }
 
   const createdAt = stamp(input.createdAt, 0);
-  return {
+  return keptFigureType({
     id: takeId(input, seen),
     name,
     brand: clip(input.brand, 80),
@@ -408,7 +438,7 @@ function cleanSale(input, seen) {
     soldDate: status === 'sold' ? soldDate : '',
     createdAt,
     updatedAt: stamp(input.updatedAt, createdAt)
-  };
+  }, input, categories);
 }
 
 export function looksLikeData(input) {
@@ -428,9 +458,9 @@ export function normalizeData(input, todayYm) {
   const saleIds = new Set();
   return {
     settings,
-    purchases: (input?.purchases || []).map((item) => cleanPurchase(item, purchaseIds)).filter(Boolean),
-    wishlist: (input?.wishlist || []).map((item) => cleanWish(item, wishIds)).filter(Boolean),
-    forSale: (input?.forSale || []).map((item) => cleanSale(item, saleIds)).filter(Boolean)
+    purchases: (input?.purchases || []).map((item) => cleanPurchase(item, purchaseIds, settings.categories)).filter(Boolean),
+    wishlist: (input?.wishlist || []).map((item) => cleanWish(item, wishIds, settings.categories)).filter(Boolean),
+    forSale: (input?.forSale || []).map((item) => cleanSale(item, saleIds, settings.categories)).filter(Boolean)
   };
 }
 

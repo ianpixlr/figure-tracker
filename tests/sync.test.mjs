@@ -43,7 +43,7 @@ function samplePurchase() {
     name: 'Asuka',
     series: 'Eva',
     brand: 'Good Smile',
-    figureType: 'nendoroid',
+    figureType: 'transformers',
     boughtAs: 'preorder',
     condition: 'MISB',
     originalAmount: 12800,
@@ -92,7 +92,11 @@ test('sheet headers match the rows the app sends', () => {
   assert.equal(row.fx_date, '2026-09-15');
   assert.equal(row.amount_rm, 391.04);
   assert.equal(row.fx_overridden, 'yes');
-  assert.equal(row.type, 'Nendoroid');
+  assert.equal(row.type, 'Transformers');
+  assert.equal(purchaseRow({ ...samplePurchase(), figureType: '1-12' }).type, '1/12');
+  assert.equal(purchaseRow({ ...samplePurchase(), figureType: 'model-kit' }).type, 'Model Kit');
+  assert.equal(purchaseRow({ ...samplePurchase(), figureType: 'Movie' }).type, 'Movie');
+  assert.equal(purchaseRow({ ...samplePurchase(), figureType: '' }).type, '');
   assert.equal(row.bought_as, 'Pre-ordered');
   assert.equal(row.status, 'Pre-ordered');
   const purchased = purchaseRow({ ...samplePurchase(), boughtAs: 'purchased', status: 'received' });
@@ -106,7 +110,7 @@ test('sheet headers match the rows the app sends', () => {
     name: 'Rei',
     series: 'Eva',
     brand: 'Good Smile',
-    figureType: 'scale',
+    figureType: '1-6',
     boughtAs: 'preorder',
     condition: 'MISB',
     originalAmount: 200,
@@ -142,6 +146,7 @@ test('sheet headers match the rows the app sends', () => {
     createdAt: '2026-10-02T00:00:00.000Z',
     updatedAt: '2026-10-02T00:00:00.000Z'
   });
+  assert.equal(open.type, '1/6');
   assert.equal(open.est_full_price, 200);
   assert.equal(open.deposit_amount_rm, 40);
   assert.equal(open.deposit_date, '2026-10-02');

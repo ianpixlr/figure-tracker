@@ -20,7 +20,9 @@ import {
   SALE_CONDITIONS,
   SALE_STATUSES,
   boughtAsLabel,
+  categoryError,
   derivedPurchaseStatus,
+  normalizeFigureType,
   carousellSearchUrl,
   categoryTotals,
   distinctValues,
@@ -31,7 +33,6 @@ import {
   preorderStatusLabel,
   rrpSearchUrl,
   priceCheckAmount,
-  purchaseStatusLabel,
   saleStatusLabel
 } from './catalog.js';
 import {
@@ -51,6 +52,7 @@ import {
   clear,
   emptyPreorder,
   exportPayload,
+  forgetCategory,
   load,
   looksLikeData,
   normalizeData,
@@ -102,7 +104,7 @@ const MONTHS = [
 ];
 
 const planIds = new Set();
-const filters = { year: '', month: '', brand: '', series: '', q: '' };
+const filters = { year: '', month: '', brand: '', series: '', type: '', q: '' };
 let undoItem = null;
 let toastTimer = 0;
 let pendingToastAction = null;
@@ -117,6 +119,7 @@ export function start() {
   document.addEventListener('input', onInput);
   document.addEventListener('change', onChange);
   document.addEventListener('focusin', onFieldFocus);
+  document.addEventListener('keydown', onKeyDown);
   window.addEventListener('hashchange', () => render());
   const dialog = document.getElementById('dialog');
   dialog.addEventListener('click', (event) => {
@@ -401,7 +404,7 @@ function logPage(data, mode, today) {
         <a class="chip" href="#log" role="tab" aria-selected="${mode === 'add'}">Add</a>
         <a class="chip" href="#entries" role="tab" aria-selected="${mode === 'entries'}">Entries</a>
       </div>
-      ${mode === 'entries' ? entriesView(data) : purchaseForm(null, today)}
+      ${mode === 'entries' ? entriesView(data) : purchaseForm(null, today, data.settings.categories)}
     </section>
   `;
 }
@@ -417,10 +420,10 @@ function editPurchaseView(data, id, today) {
       </section>
     `;
   }
-  return purchaseForm(purchase, today);
+  return purchaseForm(purchase, today, data.settings.categories);
 }
 
-function purchaseForm(purchase, today) {
+function purchaseForm(purchase, today, categories = []) {
   const editing = Boolean(purchase);
   const value = purchase || {
     name: '', series: '', brand: '', figureType: '', boughtAs: 'purchased', condition: '',
@@ -529,9 +532,7 @@ function purchaseForm(purchase, today) {
             <label class="field" data-edge for="field-brand">Brand
               <input id="field-brand" name="brand" maxlength="80" autocomplete="off" value="${esc(value.brand || '')}">
             </label>
-            <label class="field" data-edge for="field-type">Type
-              <select id="field-type" name="figureType">${selectOptions(FIGURE_TYPES, value.figureType || '')}</select>
-            </label>
+            ${typePicker(value.figureType || '', categories)}
             <label class="field" data-edge for="field-condition">Condition
               <select id="field-condition" name="condition">${selectOptions(PURCHASE_CONDITIONS, value.condition || '')}</select>
             </label>
@@ -618,7 +619,8 @@ function activeFilters() {
     filters.year && ['year', filters.year],
     filters.month && ['month', MONTHS.find((item) => item[0] === filters.month)?.[1] || filters.month],
     filters.brand && ['brand', filters.brand],
-    filters.series && ['series', filters.series]
+    filters.series && ['series', filters.series],
+    filters.type && ['type', figureTypeLabel(filters.type)]
   ].filter(Boolean);
 }
 
@@ -633,6 +635,7 @@ function openFilters(data) {
     ${filterChips('Month', 'month', [['', 'All'], ...MONTHS])}
     ${filterChips('Brand', 'brand', [['', 'All'], ...distinctValues(data.purchases, 'brand').map((value) => [value, value])])}
     ${filterChips('Series', 'series', [['', 'All'], ...distinctValues(data.purchases, 'series').map((value) => [value, value])])}
+    ${filterChips('Type', 'type', typeFilterOptions(data))}
     <button class="btn btn-ghost" type="button" data-action="close-dialog">Done</button>
   `);
 }
@@ -651,10 +654,8 @@ function groupHtml(group, groupIndex) {
 }
 
 function purchaseCard(purchase, index) {
-  const order = boughtAsLabel(purchase.boughtAs);
-  const state = purchaseStatusLabel(purchase.status);
-  const bits = [formatDay(purchase.date), order];
-  if (state !== order) bits.push(state);
+  const bits = [formatDay(purchase.date)];
+  if (purchase.boughtAs === 'preorder') bits.push(boughtAsLabel('preorder'));
   if (purchase.brand) bits.push(purchase.brand);
   if (purchase.series) bits.push(purchase.series);
   const foreign = foreignNote(purchase);
@@ -1009,6 +1010,7 @@ function settingsView(data, corrupt) {
         <button class="btn btn-primary" type="submit">Save settings</button>
       </form>
       <button class="btn btn-ghost" id="sync-all" type="button" data-action="sync-all">Sync all now</button>
+      ${categorySettings(settings)}
       <section class="panel">
         <h3>Backup</h3>
         <p class="meta">Export a JSON file of purchases, the wishlist, listings, and settings. Import replaces what is on this device.</p>
@@ -1112,6 +1114,58 @@ function currencyOptions(selected) {
 
 function selectOptions(options, selected) {
   return options.map((option) => `<option value="${esc(option.value)}" ${option.value === selected ? 'selected' : ''}>${esc(option.label)}</option>`).join('');
+}
+
+function typeOptions(categories = []) {
+  return [
+    ...FIGURE_TYPES,
+    ...categories.map((name) => ({ value: name, label: name }))
+  ];
+}
+
+function typeFilterOptions(data) {
+  return [['', 'All'], ...typeOptions(data.settings.categories || []).filter((item) => item.value).map((item) => [item.value, item.label])];
+}
+
+function typePicker(selected, categories = []) {
+  const options = typeOptions(categories);
+  return `
+    <div class="type-field" data-edge>
+      <p class="kicker">Type</p>
+      <div class="chips" data-type-chips>
+        <div class="chip-set" role="radiogroup" aria-label="Type">
+          ${options.map((option) => `
+            <label class="chip">
+              <input type="radio" name="figureType" value="${esc(option.value)}" ${option.value === selected ? 'checked' : ''}>
+              <span>${esc(option.label)}</span>
+            </label>
+          `).join('')}
+        </div>
+        <button class="chip" type="button" data-action="new-category">+ New</button>
+      </div>
+      <div class="new-category" data-new-category hidden>
+        <input id="field-new-category" name="newCategory" maxlength="20" autocomplete="off" placeholder="Category" aria-label="New category">
+        <button class="btn btn-primary" type="button" data-action="add-category">Add</button>
+        <p class="category-error" data-category-error role="alert" hidden></p>
+      </div>
+    </div>
+  `;
+}
+
+function categorySettings(settings) {
+  const categories = settings.categories || [];
+  return `
+    <section class="panel" id="categories">
+      <h3>Categories</h3>
+      <p class="meta">Custom types for the log. Built-in types stay.</p>
+      ${categories.length ? `<ul class="category-list">${categories.map((name) => `
+        <li>
+          <span>${esc(name)}</span>
+          <button class="icon-btn" type="button" data-action="remove-category" data-name="${esc(name)}" aria-label="Remove ${esc(name)}">×</button>
+        </li>
+      `).join('')}</ul>` : '<p class="empty">No custom categories yet. Add one from the log.</p>'}
+    </section>
+  `;
 }
 
 function chips(name, options, selected, label = name) {
@@ -1281,6 +1335,96 @@ function onClick(event) {
     const loaded = currentData();
     if (!loaded.corrupt) openFilters(loaded.data);
   }
+  if (action === 'new-category') showNewCategory(button);
+  if (action === 'add-category') addCategoryFromForm(button);
+  if (action === 'remove-category') askRemoveCategory(button.dataset.name || '');
+  if (action === 'confirm-remove-category') confirmRemoveCategory(button.dataset.name || '');
+}
+
+function onKeyDown(event) {
+  if (event.key !== 'Enter') return;
+  const input = event.target;
+  if (!(input instanceof HTMLInputElement) || input.name !== 'newCategory') return;
+  event.preventDefault();
+  addCategoryFromForm(input);
+}
+
+function showNewCategory(button) {
+  const form = button.closest('form');
+  const box = form?.querySelector('[data-new-category]');
+  if (!box) return;
+  box.hidden = false;
+  const error = box.querySelector('[data-category-error]');
+  if (error) error.hidden = true;
+  box.querySelector('input')?.focus();
+}
+
+function addCategoryFromForm(source) {
+  const form = source.closest('form');
+  const input = form?.querySelector('[name="newCategory"]');
+  const error = form?.querySelector('[data-category-error]');
+  if (!form || !input) return;
+  const loaded = currentData();
+  if (loaded.corrupt) return;
+  const name = input.value.trim();
+  const categories = loaded.data.settings.categories || [];
+  const problem = categoryError(name, categories);
+  if (problem) {
+    if (error) {
+      error.hidden = false;
+      error.textContent = problem;
+    }
+    return;
+  }
+  loaded.data.settings.categories = [...categories, name];
+  if (!persist(loaded.data)) return;
+  const set = form.querySelector('[data-type-chips] .chip-set');
+  const existing = set?.querySelector(`input[name="figureType"][value="${CSS.escape(name)}"]`);
+  if (set && !existing) {
+    const label = document.createElement('label');
+    label.className = 'chip';
+    const radio = document.createElement('input');
+    radio.type = 'radio';
+    radio.name = 'figureType';
+    radio.value = name;
+    const text = document.createElement('span');
+    text.textContent = name;
+    label.append(radio, text);
+    set.append(label);
+    radio.checked = true;
+  } else if (existing) {
+    existing.checked = true;
+  }
+  input.value = '';
+  if (error) error.hidden = true;
+  const box = form.querySelector('[data-new-category]');
+  if (box) box.hidden = true;
+}
+
+function askRemoveCategory(name) {
+  if (!name) return;
+  openDialog(`
+    <h2 id="dialog-title">Remove ${esc(name)}?</h2>
+    <p>Figures in ${esc(name)} move to Other.</p>
+    <div class="btn-row">
+      <button class="btn btn-primary" type="button" data-action="confirm-remove-category" data-name="${esc(name)}">Remove</button>
+      <button class="btn btn-ghost" type="button" data-action="close-dialog">Cancel</button>
+    </div>
+  `);
+}
+
+function confirmRemoveCategory(name) {
+  const loaded = currentData();
+  if (loaded.corrupt) return;
+  const changed = forgetCategory(loaded.data, name);
+  const stamp = now().toISOString();
+  for (const purchase of changed) purchase.updatedAt = stamp;
+  if (!persist(loaded.data)) return;
+  for (const purchase of changed) enqueueUpsert('Purchases', purchaseRow(purchase));
+  if (changed.length) kickSync(syncSource);
+  closeDialog();
+  showToast(`Removed ${name}.`);
+  render();
 }
 
 function fieldValue(form, name) {
@@ -1529,7 +1673,8 @@ function readPurchaseDetails(form) {
   if (!isYMD(date)) return { error: 'Choose a valid date.' };
   if (!['purchased', 'preorder'].includes(boughtAs)) return { error: 'Choose an order type.' };
   if (notes.length > 280) return { error: 'Use a shorter note.' };
-  const types = FIGURE_TYPES.map((item) => item.value);
+  const loaded = currentData();
+  const categories = loaded.corrupt ? [] : (loaded.data.settings.categories || []);
   const conditions = PURCHASE_CONDITIONS.map((item) => item.value);
   return {
     detail: {
@@ -1538,7 +1683,7 @@ function readPurchaseDetails(form) {
       series: fieldValue(form, 'series').trim().slice(0, 80),
       brand: fieldValue(form, 'brand').trim().slice(0, 80),
       shop: fieldValue(form, 'shop').trim().slice(0, 80),
-      figureType: types.includes(figureType) ? figureType : '',
+      figureType: normalizeFigureType(figureType, categories),
       boughtAs,
       condition: conditions.includes(condition) ? condition : '',
       notes
@@ -2143,15 +2288,19 @@ function showMoney(el, text) {
   el.innerHTML = withAmounts(text || '');
 }
 
+function formErrorSlot(form) {
+  return form.querySelector(':scope > .form-error');
+}
+
 function showFormError(form, message) {
-  const slot = form.querySelector('.form-error');
+  const slot = formErrorSlot(form);
   if (!slot) return;
   slot.hidden = false;
   showMoney(slot, message);
 }
 
 function clearFormError(form) {
-  const slot = form.querySelector('.form-error');
+  const slot = formErrorSlot(form);
   if (!slot) return;
   slot.hidden = true;
   slot.textContent = '';
