@@ -646,7 +646,7 @@ function entriesView(data, route = {}) {
     <div class="tools">
       <label class="search">
         ${SEARCH_ICON}
-        <input id="field-search" type="search" inputmode="search" enterkeyhint="search" placeholder="Search purchases" aria-label="Search purchases" value="${esc(filters.q)}" autocomplete="off" autocapitalize="off" spellcheck="false">
+        <input id="field-search" type="search" inputmode="search" enterkeyhint="search" placeholder="Search purchases" aria-label="Search purchases" value="${esc(filters.q)}" ${typingAttrs('off')}>
       </label>
       <button class="btn btn-ghost filter-btn" type="button" data-action="open-filters">Filter${active.length ? ` <span class="badge">${active.length}</span>` : ''}</button>
     </div>
@@ -812,8 +812,8 @@ function wishView(data, mode) {
 function wishForm() {
   return `
     <form class="panel" id="wish-form" novalidate>
-      <label class="field" data-edge for="wish-name">Figure name
-        <input id="wish-name" name="name" maxlength="80" autocomplete="off" autocapitalize="words">
+      <label class="field" data-edge for="fc-wish">Figure
+        <input id="fc-wish" name="fc_wish" maxlength="80" ${typingAttrs('words')}>
       </label>
       ${moneyFields({ amountId: 'wish-price' })}
       <label class="field" data-edge for="wish-priority">Priority
@@ -906,14 +906,14 @@ function saleForm(item) {
   const editing = Boolean(item);
   return `
     <form class="panel" id="sale-form" ${editing ? `data-id="${esc(item.id)}"` : ''} novalidate>
-      <label class="field" data-edge for="sale-name">Figure name
-        <input id="sale-name" name="name" maxlength="80" autocomplete="off" value="${esc(value.name)}">
+      <label class="field" data-edge for="fc-sale">Figure
+        <input id="fc-sale" name="fc_sale" maxlength="80" ${typingAttrs('words')} value="${esc(value.name)}">
       </label>
       <label class="field" data-edge for="sale-brand">Brand
-        <input id="sale-brand" name="brand" maxlength="80" autocomplete="off" value="${esc(value.brand || '')}">
+        <input id="sale-brand" name="brand" maxlength="80" ${typingAttrs('words')} value="${esc(value.brand || '')}">
       </label>
       <label class="field" data-edge for="sale-series">Series
-        <input id="sale-series" name="series" maxlength="80" autocomplete="off" value="${esc(value.series || '')}">
+        <input id="sale-series" name="series" maxlength="80" ${typingAttrs('words')} value="${esc(value.series || '')}">
       </label>
       <p class="spec-label" data-edge>Condition</p>
       ${chips('condition', SALE_CONDITIONS, value.condition || 'MISB')}
@@ -926,7 +926,7 @@ function saleForm(item) {
         amountId: 'sale-price'
       })}
       <label class="field" data-edge for="sale-notes">Notes
-        <textarea id="sale-notes" name="notes" maxlength="280" rows="3">${esc(value.notes || '')}</textarea>
+        <textarea id="sale-notes" name="notes" maxlength="280" rows="3" ${typingAttrs('sentences')}>${esc(value.notes || '')}</textarea>
       </label>
       <p class="spec-label" data-edge>Status</p>
       ${chips('status', SALE_STATUSES, value.status || 'listed')}
@@ -994,21 +994,21 @@ function priceCheckForm(item) {
     <form class="check-form" data-check-form data-sale-id="${esc(item.id)}" novalidate>
       <div class="check-prices" data-edge>
         <label class="field">Low
-          <input name="low" inputmode="decimal" autocomplete="off" placeholder="0.00" aria-label="Low price">
+          <input name="low" inputmode="decimal" enterkeyhint="done" ${typingAttrs('off')} placeholder="0.00" aria-label="Low price">
         </label>
         <label class="field">Typical
-          <input name="typical" inputmode="decimal" autocomplete="off" placeholder="0.00" aria-label="Typical price">
+          <input name="typical" inputmode="decimal" enterkeyhint="done" ${typingAttrs('off')} placeholder="0.00" aria-label="Typical price">
         </label>
         <label class="field">High
-          <input name="high" inputmode="decimal" autocomplete="off" placeholder="0.00" aria-label="High price">
+          <input name="high" inputmode="decimal" enterkeyhint="done" ${typingAttrs('off')} placeholder="0.00" aria-label="High price">
         </label>
       </div>
       <div class="check-pair" data-edge>
         <label class="field">RRP
-          <input name="rrp" maxlength="80" autocomplete="off" placeholder="Optional" aria-label="RRP">
+          <input name="rrp" maxlength="80" ${typingAttrs('off')} placeholder="Optional" aria-label="RRP">
         </label>
         <label class="field">Source
-          <input name="source" maxlength="80" autocomplete="off" value="Carousell" aria-label="Source">
+          <input name="source" maxlength="80" ${typingAttrs('words')} value="Carousell" aria-label="Source">
         </label>
       </div>
       <p class="form-error" role="alert" hidden></p>
@@ -1070,7 +1070,7 @@ function settingsView(data, corrupt) {
           ], readTheme(localStorage), 'Theme')}
         </div>
         <label class="field setting" data-edge for="field-cap">Monthly cap (RM)
-          <input id="field-cap" name="cap" inputmode="decimal" autocomplete="off" value="${esc(settings.monthlyCap.toFixed(2))}">
+          <input id="field-cap" name="cap" inputmode="decimal" enterkeyhint="done" ${typingAttrs('off')} value="${esc(settings.monthlyCap.toFixed(2))}">
           <span class="meta">${withAmounts('The limit for each calendar month, in Malaysia time. It starts at RM 400.00.')}</span>
         </label>
         <div class="setting checks" data-edge>
@@ -1090,7 +1090,7 @@ function settingsView(data, corrupt) {
           </label>
         </div>
         <label class="field setting" data-edge for="field-sync">Sheet sync URL
-          <input id="field-sync" name="syncUrl" inputmode="url" autocomplete="off" placeholder="https://script.google.com/macros/s/DEPLOYMENT_ID/exec" value="${esc(syncFieldValue(settings))}">
+          <input id="field-sync" name="syncUrl" inputmode="url" enterkeyhint="done" ${typingAttrs('off')} placeholder="https://script.google.com/macros/s/DEPLOYMENT_ID/exec" value="${esc(syncFieldValue(settings))}">
           <span class="meta">Leave blank to use the built-in sheet. A different web app URL replaces it. Rates come from the European Central Bank via Frankfurter, with a cached rate when you are offline.</span>
         </label>
         <p class="meta" id="settings-preview">${withAmounts(preview)}</p>
@@ -1195,7 +1195,7 @@ function moneyFields({
     <div class="money" data-edge data-money data-prefix="${esc(prefix)}" ${historical ? 'data-historical="true"' : ''} data-date-field="${esc(dateField)}">
       <div class="money-row">
         <label class="field" for="${esc(amountId)}">${esc(label)}
-          <input id="${esc(amountId)}" name="${names.amount}" inputmode="decimal" enterkeyhint="done" autocomplete="off" placeholder="0.00" value="${esc(amount)}">
+          <input id="${esc(amountId)}" name="${names.amount}" inputmode="decimal" enterkeyhint="done" ${typingAttrs('off')} placeholder="0.00" value="${esc(amount)}">
         </label>
         <label class="field" for="${esc(amountId)}-currency">Currency
           <select id="${esc(amountId)}-currency" name="${names.currency}">${currencyOptions(currency)}</select>
@@ -1210,7 +1210,7 @@ function moneyFields({
         </span>
       </label>
       <label class="field" for="${esc(amountId)}-rm" data-fx-rm ${override ? '' : 'hidden'}>Statement amount (RM)
-        <input id="${esc(amountId)}-rm" name="${names.rm}" inputmode="decimal" enterkeyhint="done" autocomplete="off" placeholder="0.00" value="${esc(amountRm)}">
+        <input id="${esc(amountId)}-rm" name="${names.rm}" inputmode="decimal" enterkeyhint="done" ${typingAttrs('off')} placeholder="0.00" value="${esc(amountRm)}">
       </label>
     </div>
   `;
@@ -1964,7 +1964,7 @@ async function savePurchase(form, id) {
 
 async function addWish(form) {
   clearFormError(form);
-  const name = fieldValue(form, 'name').trim();
+  const name = fieldValue(form, 'fc_wish').trim();
   const priorityValue = fieldValue(form, 'priority');
   const priority = ['must', 'really', 'nice'].includes(priorityValue) ? priorityValue : 'really';
   if (!name) {
@@ -1997,7 +1997,7 @@ async function addWish(form) {
 
 async function saveSale(form, id) {
   clearFormError(form);
-  const name = fieldValue(form, 'name').trim();
+  const name = fieldValue(form, 'fc_sale').trim();
   const condition = fieldValue(form, 'condition');
   const status = fieldValue(form, 'status') === 'sold' ? 'sold' : 'listed';
   const notes = fieldValue(form, 'notes').trim();

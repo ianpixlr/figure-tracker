@@ -232,6 +232,63 @@ async function assertAlignment(page) {
   assert.deepEqual(issues, []);
 }
 
+async function assertNoContactFields(page) {
+  const hits = await page.evaluate(() => {
+    const banned = [
+      /\bname\b/i,
+      /e-?mail/i,
+      /\bphone\b/i,
+      /\bmobile\b/i,
+      /\bfax\b/i,
+      /\btel\b/i,
+      /\baddress\b/i,
+      /\bstreet\b/i,
+      /\bcity\b/i,
+      /\btown\b/i,
+      /\bzip\b/i,
+      /\bpostal\b/i,
+      /\bpostcode\b/i,
+      /\bcountry\b/i,
+      /\bprovince\b/i,
+      /\bcounty\b/i,
+      /\bstate\b/i,
+      /organi[sz]ation/i,
+      /\bcompany\b/i,
+      /\bemployer\b/i,
+      /\bbirthday\b/i,
+      /\bbday\b/i,
+      /\bsurname\b/i,
+      /\bgiven[- ]?name\b/i,
+      /\bfamily[- ]?name\b/i,
+      /\bfirst[- ]?name\b/i,
+      /\blast[- ]?name\b/i,
+      /\bnickname\b/i
+    ];
+    return [...document.querySelectorAll('#main input, #main textarea')].flatMap((el) => {
+      const type = (el.getAttribute('type') || 'text').toLowerCase();
+      if (el.tagName !== 'TEXTAREA' && type !== 'text' && type !== 'search') return [];
+      const label = el.labels?.[0];
+      const labelText = label
+        ? [...label.childNodes].filter((node) => node.nodeType === Node.TEXT_NODE).map((node) => node.textContent).join(' ')
+        : '';
+      const signature = [
+        el.getAttribute('name') || '',
+        el.id || '',
+        el.getAttribute('placeholder') || '',
+        el.getAttribute('aria-label') || '',
+        labelText
+      ].join(' ');
+      const who = el.id || el.getAttribute('name') || el.getAttribute('aria-label') || 'field';
+      const problems = banned.filter((pattern) => pattern.test(signature)).map((pattern) => `${who}: ${pattern}`);
+      if (el.getAttribute('autocomplete') !== 'off') problems.push(`${who}: autocomplete`);
+      if (el.getAttribute('autocorrect') !== 'off') problems.push(`${who}: autocorrect`);
+      if (el.getAttribute('spellcheck') !== 'false') problems.push(`${who}: spellcheck`);
+      return problems;
+    });
+  });
+  assert.deepEqual(hits, []);
+}
+
 async function go(page, hash, ready) {
   await page.evaluate((next) => {
     if (location.hash !== next) location.hash = next;
@@ -1490,11 +1547,11 @@ async function main() {
     assert.match(await bodyText(page), /RM 90\.00/);
     assert.match((await bodyText(page)).toLowerCase(), /asuka/);
 
-    await go(page, '#wish', '#wish-name');
+    await go(page, '#wish', '#fc-wish');
     await press(page, '#wish-form button[type="submit"]');
     await page.waitForSelector('.form-error:not([hidden])');
     assert.match(await text(page, '.form-error'), /Enter a figure name/);
-    await typeInto(page, '#wish-name', 'Mari');
+    await typeInto(page, '#fc-wish', 'Mari');
     await typeInto(page, '#wish-price', '100');
     await press(page, '#wish-form button[type="submit"]');
     await page.waitForFunction(() => document.getElementById('wish-total')?.textContent === '100');
@@ -1516,8 +1573,8 @@ async function main() {
     await page.click('label.pick');
     await page.waitForFunction(() => document.getElementById('plan-detail').textContent.includes('would still be left'));
 
-    await go(page, '#sell', '#sale-name');
-    await typeInto(page, '#sale-name', 'Mari');
+    await go(page, '#sell', '#fc-sale');
+    await typeInto(page, '#fc-sale', 'Mari');
     await typeInto(page, '#sale-price', '70');
     await press(page, '#sale-form button[type="submit"]');
     await page.waitForFunction(() => document.body.innerText.includes('No price check yet.'));
@@ -1939,9 +1996,9 @@ async function main() {
       ['#home', '#left-value'],
       ['#entries', '#chart'],
       ['#log', '#fc-item'],
-      ['#wish', '#wish-name'],
+      ['#wish', '#fc-wish'],
       ['#sell', 'article.block'],
-      ['#edit-sale/sale-1', '#sale-name'],
+      ['#edit-sale/sale-1', '#fc-sale'],
       ['#settings', '#theme-label']
     ];
     for (const mode of ['dark', 'light']) {
@@ -1953,6 +2010,7 @@ async function main() {
       assert.equal(await page.evaluate(() => document.documentElement.dataset.mode), mode);
       for (const [hash, ready] of screens) {
         await go(page, hash, ready);
+        await assertNoContactFields(page);
         if (hash === '#log') {
           await clickLabel(page, 'Pre-order');
           await showTypeExtras(page);
@@ -2016,10 +2074,10 @@ async function main() {
         ['#log', '#fc-item'],
         ['#entries', '#chart'],
         ['#edit/over', '#fc-item'],
-        ['#wish', '#wish-name'],
+        ['#wish', '#fc-wish'],
         ['#plan', '#plan-summary'],
-        ['#sell', '#sale-name'],
-        ['#edit-sale/sale-1', '#sale-name'],
+        ['#sell', '#fc-sale'],
+        ['#edit-sale/sale-1', '#fc-sale'],
         ['#settings', '#field-cap']
       ]) {
         await go(page, hash, ready);
