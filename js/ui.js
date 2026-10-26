@@ -9,6 +9,7 @@ import {
   homeModel,
   monthSnapshot,
   monthSpent,
+  openPreorders,
   percentLabel,
   planModel,
   statusLine,
@@ -144,7 +145,7 @@ export function render() {
     location.replace(route.redirect);
     return;
   }
-  const routeKey = `${route.name}:${route.id || ''}`;
+  const routeKey = `${route.name}:${route.id || ''}:${route.list || ''}:${route.focus || ''}`;
   const routeChanged = routeKey !== lastRouteKey;
   lastRouteKey = routeKey;
 
@@ -165,6 +166,7 @@ export function render() {
   if (routeChanged) {
     chartExpanded = false;
     scrollPageToTop();
+    if (route.focus) scrollIntoView(route.focus);
   }
   refreshShellDiag();
 }
@@ -173,6 +175,14 @@ function scrollPageToTop() {
   const main = document.getElementById('main');
   if (main) main.scrollTop = 0;
   window.scrollTo(0, 0);
+}
+
+function scrollIntoView(id) {
+  const scroller = document.getElementById('main');
+  const target = document.getElementById(id);
+  if (!scroller || !target) return;
+  const origin = scroller.getBoundingClientRect().top;
+  scroller.scrollTop = Math.max(0, target.getBoundingClientRect().top - origin + scroller.scrollTop - 8);
 }
 
 function prefersDark() {
@@ -213,6 +223,8 @@ function onFieldFocus(event) {
 function parseRoute() {
   const hash = location.hash.replace(/^#/, '');
   if (hash === 'history') return { name: 'entries', id: null, redirect: '#entries' };
+  if (hash === 'entries/preorders') return { name: 'entries', id: null, list: 'preorders' };
+  if (hash === 'entries/types') return { name: 'entries', id: null, focus: 'category-totals' };
   if (hash.startsWith('edit-sale/')) {
     return { name: 'edit-sale', id: decodeURIComponent(hash.slice('edit-sale/'.length)) };
   }
@@ -237,7 +249,7 @@ function setNav(name) {
 
 function viewFor(route, data, today) {
   if (route.name === 'log') return logPage(data, 'add', today);
-  if (route.name === 'entries') return logPage(data, 'entries', today);
+  if (route.name === 'entries') return logPage(data, 'entries', today, route);
   if (route.name === 'edit') return editPurchaseView(data, route.id, today);
   if (route.name === 'wish' || route.name === 'plan') return wishView(data, route.name);
   if (route.name === 'sell') return sellPage(data, null);
@@ -306,7 +318,7 @@ function homeView(data) {
       </div>
       ${month.usedUp ? `<p class="banner" id="cap-message">${esc(CAP_USED_MESSAGE)}</p>` : ''}
       <a class="btn btn-primary" id="log-link" href="#log">Log a purchase</a>
-      ${latest ? latestCard(latest) : `
+      ${latest ? purchaseCard(latest, 0, { arrow: true }) : `
         <article class="block yellow">
           <div class="card-head" data-edge>
             <div class="tags"><span class="tag">Collection</span></div>
@@ -319,7 +331,7 @@ function homeView(data) {
         <article class="block mint" id="balances-card">
           <div class="card-head" data-edge>
             <div class="tags"><span class="tag">Balances coming</span></div>
-            <a class="arrow" href="#entries" aria-label="Open open pre-orders">${ARROW}</a>
+            <a class="arrow" href="#entries/preorders" aria-label="Open open pre-orders">${ARROW}</a>
           </div>
           <p class="block-value" data-edge>${formatRM(balances.total)}</p>
           <p class="meta" data-edge>${balances.count === 1 ? '1 open pre-order' : `${balances.count} open pre-orders`}</p>
@@ -327,7 +339,7 @@ function homeView(data) {
       <article class="block ${balances.count ? 'yellow' : 'mint'}">
         <div class="card-head" data-edge>
           <div class="tags"><span class="tag">${esc(model.year)}</span></div>
-          <a class="arrow" href="#entries" aria-label="Open the log">${ARROW}</a>
+          <a class="arrow" href="#entries/types" aria-label="Open spending by type">${ARROW}</a>
         </div>
         <p class="kicker" data-edge>Year to date</p>
         <p class="block-value" id="ytd-value" data-edge>${formatRM(model.ytd)}</p>
@@ -371,41 +383,16 @@ function latestPurchase(purchases) {
   })[0] || null;
 }
 
-function latestCard(purchase) {
-  const bits = [formatRM(figureAmount(purchase)), formatDay(purchase.date), purchase.series, purchase.shop].filter(Boolean);
-  return `
-    <article class="block yellow">
-      <div class="card-head" data-edge>
-        <div class="tags">
-          ${purchase.figureType ? `<span class="tag">${esc(figureTypeLabel(purchase.figureType))}</span>` : ''}
-          ${purchase.condition ? `<span class="tag">${esc(purchase.condition)}</span>` : ''}
-        </div>
-        <a class="arrow" href="#edit/${encodeURIComponent(purchase.id)}" aria-label="Open ${esc(purchase.name)}">${ARROW}</a>
-      </div>
-      <p class="kicker" data-edge>Latest purchase</p>
-      <h3 data-edge>${esc(purchase.name)}</h3>
-      <p class="meta" data-edge>${withAmounts(bits.join(' · '))}</p>
-    </article>
-  `;
-}
-
 function breakdownStats(breakdown) {
-  const cells = breakdown.types.map((row, index) => `
-    <div data-stat="${index}">
-      <p class="spec-label">${esc(figureTypeLabel(row.figureType))}</p>
-      <p class="stat-v">${formatRM(row.total)}</p>
-    </div>
-  `);
-  cells.push(`
-    <div data-stat="${cells.length}">
+  return `
+    <div class="ytd-count" data-edge>
       <p class="spec-label">Purchases</p>
       <p class="stat-v">${breakdown.count}</p>
     </div>
-  `);
-  return `<div class="stats" data-edge>${cells.join('')}</div>`;
+  `;
 }
 
-function logPage(data, mode, today) {
+function logPage(data, mode, today, route) {
   return `
     <section>
       <h2>Log</h2>
@@ -413,7 +400,7 @@ function logPage(data, mode, today) {
         <a class="chip" href="#log" role="tab" aria-selected="${mode === 'add'}">Add</a>
         <a class="chip" href="#entries" role="tab" aria-selected="${mode === 'entries'}">Entries</a>
       </div>
-      ${mode === 'entries' ? entriesView(data) : purchaseForm(null, today, data.settings.categories)}
+      ${mode === 'entries' ? entriesView(data, route) : purchaseForm(null, today, data.settings.categories)}
     </section>
   `;
 }
@@ -561,7 +548,7 @@ function purchaseForm(purchase, today, categories = []) {
   `;
 }
 
-function entriesView(data) {
+function entriesView(data, route = {}) {
   const history = historyModel(data, now());
   const filtered = filterPurchases(data.purchases, filters).slice().sort((a, b) => {
     if (a.date !== b.date) return a.date < b.date ? 1 : -1;
@@ -586,8 +573,19 @@ function entriesView(data) {
   const chartToggle = history.charts.length > CHART_PREVIEW
     ? `<button class="text-btn" type="button" data-action="toggle-chart" aria-expanded="${chartExpanded ? 'true' : 'false'}">${chartExpanded ? 'Show less' : 'Show all'}</button>`
     : '';
-  const groups = groupByMonth(filtered);
+  const preordersOnly = route.list === 'preorders';
+  const listed = preordersOnly ? openPreorders(filtered) : filtered;
+  const groups = groupByMonth(listed);
   const active = activeFilters();
+  const preorderBar = preordersOnly ? `
+    <div class="tools" id="preorder-filter">
+      <p class="meta">Open pre-orders</p>
+      <a class="text-btn" href="#entries">Show all</a>
+    </div>
+  ` : '';
+  const empty = preordersOnly
+    ? 'No open pre-orders.'
+    : (data.purchases.length ? 'Nothing matches these filters.' : 'No purchases yet.');
   return `
     <div class="tools">
       <label class="search">
@@ -616,7 +614,8 @@ function entriesView(data) {
         `).join('')}
       </div>
     </article>
-    ${groups.length ? renderGroups(groups, data.purchases) : `<p class="empty">${data.purchases.length ? 'Nothing matches these filters.' : 'No purchases yet.'}</p>`}
+    ${preorderBar}
+    ${groups.length ? renderGroups(groups, data.purchases) : `<p class="empty">${empty}</p>`}
   `;
 }
 
@@ -680,11 +679,14 @@ function groupHtml(group, offset, purchases) {
   `;
 }
 
-function purchaseCard(purchase, index) {
+function purchaseCard(purchase, index, options = {}) {
   const preorder = preorderNote(purchase);
   const pay = purchase.boughtAs === 'preorder' && purchase.preorderStatus === 'deposit paid'
     ? `<a class="btn btn-primary" href="#edit/${encodeURIComponent(purchase.id)}">Pay balance</a>`
     : `<a class="btn btn-ghost" href="#edit/${encodeURIComponent(purchase.id)}">Edit</a>`;
+  const arrow = options.arrow
+    ? `<a class="arrow" href="#edit/${encodeURIComponent(purchase.id)}" aria-label="Edit ${esc(purchase.name)}">${ARROW}</a>`
+    : '';
   return `
     <article class="block ${TONES[index % TONES.length]}" data-id="${esc(purchase.id)}">
       <div class="card-head" data-edge>
@@ -693,7 +695,7 @@ function purchaseCard(purchase, index) {
           ${purchase.condition ? `<span class="tag">${esc(purchase.condition)}</span>` : ''}
           ${purchase.preorderStatus ? `<span class="tag">${esc(preorderStatusLabel(purchase.preorderStatus))}</span>` : ''}
         </div>
-        <a class="arrow" href="#edit/${encodeURIComponent(purchase.id)}" aria-label="Edit ${esc(purchase.name)}">${ARROW}</a>
+        ${arrow}
       </div>
       ${identityMeta([formatDay(purchase.date), purchase.brand, purchase.series])}
       <h3 data-edge>${esc(purchase.name)}</h3>
@@ -913,7 +915,6 @@ function saleCard(item, index) {
     <article class="block ${TONES[index % TONES.length]}" data-id="${esc(item.id)}">
       <div class="card-head" data-edge>
         <div class="tags"><span class="tag">${esc(item.condition)}</span><span class="tag">${esc(saleStatusLabel(item.status))}</span></div>
-        <a class="arrow" href="#edit-sale/${encodeURIComponent(item.id)}" aria-label="Edit ${esc(item.name)}">${ARROW}</a>
       </div>
       ${identityMeta([item.brand, item.series])}
       <h3 data-edge>${esc(item.name)}</h3>

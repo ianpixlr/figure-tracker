@@ -568,18 +568,21 @@ html[data-mode="dark"] .block {
 
 .note { margin: 8px 0 0; white-space: pre-wrap; }
 
-.stats, .spec, .spec-grid {
+.stats {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(min(100%, 7.5rem), 1fr));
   gap: 8px 12px;
   margin-top: 12px;
 }
 
-.spec, .spec-grid { grid-template-columns: repeat(auto-fit, minmax(min(100%, 8.5rem), 1fr)); }
+.stats p { margin: 0; }
 
-.stats p, .spec p { margin: 0; }
+.ytd-count {
+  margin-top: 12px;
+  text-align: left;
+}
 
-.stat-v, .spec-value {
+.stat-v {
   margin-top: 3px;
   font-weight: 400;
   letter-spacing: -0.03em;
@@ -709,6 +712,10 @@ html[data-mode="dark"] .block {
   gap: 8px;
   margin-bottom: 10px;
 }
+
+#preorder-filter .meta { margin: 0; }
+
+#preorder-filter .text-btn { margin: 0 0 0 auto; }
 
 .amt,
 .block-value,

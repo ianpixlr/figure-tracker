@@ -1057,10 +1057,34 @@ async function main() {
     await typeInto(page, '#field-notes', 'window');
     await press(page, '#log-form button[type="submit"]');
     await page.waitForSelector('#month-title');
-    const latestMeta = await page.$eval('article.block.yellow p.meta', (el) => el.textContent.trim());
-    assert.match(latestMeta, /Neon Genesis Evangelion/);
-    assert.equal(latestMeta.includes('Received'), false);
-    assert.equal(latestMeta.includes('Purchased'), false);
+    const latestHome = await page.evaluate(() => {
+      const article = document.querySelector('article.block.yellow');
+      const ytd = document.getElementById('ytd-value').closest('article');
+      return {
+        order: [...article.children].map((el) => (
+          el.classList.contains('card-head') ? 'tags'
+            : el.tagName === 'H3' ? 'name'
+              : el.classList.contains('block-value') ? 'price'
+                : el.classList.contains('meta') ? 'meta'
+                  : el.classList.contains('note') ? 'note'
+                    : el.classList.contains('btn-row') ? 'actions'
+                      : el.className
+        )),
+        meta: article.querySelector('p.meta')?.textContent.trim() || '',
+        name: article.querySelector('h3')?.textContent.trim() || '',
+        price: article.querySelector('.block-value')?.textContent.trim() || '',
+        ytd: ytd.innerText.replace(/\s+/g, ' ').trim(),
+        ytdLabels: [...ytd.querySelectorAll('.spec-label')].map((el) => el.textContent.trim())
+      };
+    });
+    assert.deepEqual(latestHome.order, ['tags', 'meta', 'name', 'price', 'note', 'actions']);
+    assert.match(latestHome.meta, /Good Smile · Neon Genesis Evangelion$/);
+    assert.match(latestHome.name, /Asuka/);
+    assert.equal(latestHome.price, 'RM 80.00');
+    assert.equal(latestHome.meta.includes('Received'), false);
+    assert.equal(latestHome.meta.includes('Purchased'), false);
+    assert.deepEqual(latestHome.ytdLabels, ['Purchases']);
+    assert.equal(latestHome.ytd.includes('1/12'), false);
     assert.equal(await text(page, '#spent-value'), 'RM 80.00');
     assert.equal(await text(page, '#left-value'), 'RM 320 / 400');
     assert.equal(await text(page, '#ytd-value'), 'RM 80.00');
@@ -2209,6 +2233,56 @@ async function main() {
     assert.equal(await text(page, '#spent-value'), 'RM 840.00');
     assert.equal(await text(page, '#ytd-value'), 'RM 1,515.00');
     assert.equal(await text(page, '#balances-card .block-value'), 'RM 875.00');
+    const ytdHome = await page.evaluate(() => {
+      const card = document.getElementById('ytd-value').closest('article');
+      return {
+        labels: [...card.querySelectorAll('.spec-label')].map((el) => el.textContent.trim()),
+        text: card.innerText
+      };
+    });
+    assert.deepEqual(ytdHome.labels, ['Purchases']);
+    assert.equal(/1\/6|1\/12|Transformers|Model Kit/.test(ytdHome.text), false);
+    assert.equal(await page.$eval('#balances-card .arrow', (el) => el.getAttribute('href')), '#entries/preorders');
+    assert.equal(await page.$eval('#ytd-value', (el) => el.closest('article').querySelector('.arrow').getAttribute('href')), '#entries/types');
+    await page.click('a[aria-label="Open spending by type"]');
+    await page.waitForFunction(() => location.hash === '#entries/types');
+    await page.waitForSelector('#category-totals');
+    const typeGap = await page.evaluate(() => {
+      const main = document.getElementById('main').getBoundingClientRect();
+      const card = document.getElementById('category-totals');
+      const rect = card.getBoundingClientRect();
+      const labels = [...card.querySelectorAll('.spec-label')].map((el) => el.textContent.trim());
+      return { gap: rect.top - main.top, labels, current: document.querySelector('.nav a[aria-current="page"]')?.textContent.trim() || '' };
+    });
+    assert.ok(typeGap.gap >= 0 && typeGap.gap <= 16, JSON.stringify(typeGap));
+    assert.ok(typeGap.labels.includes('1/6') && typeGap.labels.includes('1/12'), JSON.stringify(typeGap));
+    assert.equal(typeGap.current, 'Log');
+    await go(page, '#home', '#balances-card');
+    await page.click('#balances-card .arrow');
+    await page.waitForSelector('#preorder-filter');
+    const openOnly = await page.evaluate(() => ({
+      names: [...document.querySelectorAll('.month-group article h3')].map((el) => el.textContent.trim()),
+      showAll: document.querySelector('#preorder-filter a')?.textContent.trim() || '',
+      href: document.querySelector('#preorder-filter a')?.getAttribute('href') || '',
+      arrows: document.querySelectorAll('.month-group .arrow').length,
+      label: document.querySelector('#preorder-filter .meta')?.textContent.trim() || ''
+    }));
+    assert.deepEqual(openOnly.names, ['Asuka']);
+    assert.equal(openOnly.showAll, 'Show all');
+    assert.equal(openOnly.href, '#entries');
+    assert.equal(openOnly.arrows, 0);
+    assert.equal(openOnly.label, 'Open pre-orders');
+    await page.setViewport({ width: 390, height: 844, isMobile: true, hasTouch: true, deviceScaleFactor: 2 });
+    await page.evaluate(() => {
+      const scroller = document.getElementById('main');
+      const bar = document.getElementById('preorder-filter');
+      const origin = scroller.getBoundingClientRect().top;
+      scroller.scrollTop = Math.max(0, bar.getBoundingClientRect().top - origin + scroller.scrollTop - 8);
+    });
+    await page.screenshot({ path: `${REPORTS}/preorders.png` });
+    await page.click('#preorder-filter a');
+    await page.waitForFunction(() => location.hash === '#entries' && document.querySelector('[data-id="rei"]') && !document.getElementById('preorder-filter'));
+    await go(page, '#home', '#balances-card');
     await page.evaluate(() => {
       const scroller = document.getElementById('main');
       const card = document.getElementById('balances-card');
@@ -2364,6 +2438,20 @@ async function main() {
     assert.equal(cardOrder.fonts.metaWeight, '400');
     assert.equal(cardOrder.fonts.name, '22px');
     assert.equal(cardOrder.fonts.price, '22px');
+    const entryEdge = await page.evaluate(() => {
+      const card = document.querySelector('[data-id="soundwave"]');
+      const left = card.getBoundingClientRect().left + parseFloat(getComputedStyle(card).paddingLeft);
+      return {
+        arrow: Boolean(card.querySelector('.arrow')),
+        head: Math.abs(card.querySelector('.card-head').getBoundingClientRect().left - left),
+        name: Math.abs(card.querySelector('h3').getBoundingClientRect().left - left),
+        edit: card.querySelector('.btn-row a')?.textContent.trim() || ''
+      };
+    });
+    assert.equal(entryEdge.arrow, false);
+    assert.ok(entryEdge.head <= 1, JSON.stringify(entryEdge));
+    assert.ok(entryEdge.name <= 1, JSON.stringify(entryEdge));
+    assert.equal(entryEdge.edit, 'Edit');
     await page.evaluate(() => {
       const scroller = document.getElementById('main');
       const card = document.querySelector('[data-id="soundwave"]');
@@ -2373,6 +2461,69 @@ async function main() {
     await assertTypeScale(page);
     await assertNoOverflow(page);
     await page.screenshot({ path: `${REPORTS}/log-card-after.png` });
+    await clipShot(page, '[data-id="soundwave"]', `${REPORTS}/entries-no-arrow.png`, 12);
+
+    await page.setViewport({ width: 390, height: 844, isMobile: true, hasTouch: true, deviceScaleFactor: 2 });
+    await go(page, '#home', '[data-id="soundwave"]');
+    const homeLatest = await page.evaluate(() => {
+      const read = (article) => [...article.children].map((el) => {
+        let kind = 'other';
+        if (el.classList.contains('card-head')) kind = 'tags';
+        else if (el.tagName === 'H3') kind = 'name';
+        else if (el.classList.contains('block-value')) kind = 'price';
+        else if (el.classList.contains('meta')) kind = 'meta';
+        else if (el.classList.contains('btn-row')) kind = 'actions';
+        else if (el.classList.contains('ytd-count')) kind = 'count';
+        return { kind, text: el.textContent.replace(/\s+/g, ' ').trim() };
+      });
+      const latest = document.querySelector('[data-id="soundwave"]');
+      const ytd = document.getElementById('ytd-value').closest('article');
+      const count = ytd.querySelector('.ytd-count');
+      const countStyle = getComputedStyle(count);
+      const name = latest.querySelector('h3');
+      return {
+        latest: read(latest),
+        ytd: read(ytd),
+        countLeft: count.getBoundingClientRect().left,
+        kickerLeft: ytd.querySelector('.kicker').getBoundingClientRect().left,
+        totalLeft: document.getElementById('ytd-value').getBoundingClientRect().left,
+        countAlign: countStyle.textAlign,
+        countSize: getComputedStyle(count.querySelector('.stat-v')).fontSize,
+        nameSize: getComputedStyle(name).fontSize,
+        priceSize: getComputedStyle(latest.querySelector('.block-value')).fontSize,
+        metaSize: getComputedStyle(latest.querySelector('.meta')).fontSize,
+        arrow: latest.querySelector('.arrow')?.getAttribute('href') || '',
+        logArrow: Boolean(document.querySelector('a.arrow[aria-label="Log a purchase"]'))
+      };
+    });
+    assert.deepEqual(homeLatest.latest.map((row) => row.kind), ['tags', 'meta', 'name', 'price', 'meta', 'actions']);
+    assert.match(homeLatest.latest[0].text, /Model Kit/);
+    assert.equal(homeLatest.latest[1].text, '4 Oct · Blokees · Wheels C04');
+    assert.equal(homeLatest.latest[2].text, 'Soundwave (Laserbeak)');
+    assert.equal(homeLatest.latest[3].text, 'RM 42.31');
+    assert.equal(homeLatest.latest[4].text, 'CN¥69.48 · PinDuoDuo');
+    assert.equal(homeLatest.arrow, '#edit/soundwave');
+    assert.equal(homeLatest.logArrow, false);
+    assert.deepEqual(homeLatest.ytd.map((row) => row.kind), ['tags', 'other', 'price', 'count']);
+    assert.match(homeLatest.ytd[1].text, /Year to date/);
+    assert.match(homeLatest.ytd[3].text, /^Purchases 4$/);
+    assert.equal(homeLatest.ytd.some((row) => /Model Kit|1\/6|1\/12|Transformers/.test(row.text)), false);
+    assert.ok(Math.abs(homeLatest.countLeft - homeLatest.kickerLeft) <= 1);
+    assert.ok(Math.abs(homeLatest.countLeft - homeLatest.totalLeft) <= 1);
+    assert.equal(homeLatest.countAlign, 'left');
+    assert.equal(homeLatest.countSize, '15px');
+    assert.equal(homeLatest.nameSize, '22px');
+    assert.equal(homeLatest.priceSize, '22px');
+    assert.equal(homeLatest.metaSize, '15px');
+    await page.evaluate(() => {
+      const scroller = document.getElementById('main');
+      const card = document.querySelector('[data-id="soundwave"]');
+      const origin = scroller.getBoundingClientRect().top;
+      scroller.scrollTop = Math.max(0, card.getBoundingClientRect().top - origin + scroller.scrollTop - 16);
+    });
+    await assertNoOverflow(page);
+    await assertTypeScale(page);
+    await page.screenshot({ path: `${REPORTS}/home-latest.png` });
 
     await go(page, '#wish', '[data-id="wish-sw"]');
     const wishOrder = await page.evaluate(() => {
@@ -2418,6 +2569,15 @@ async function main() {
     assert.equal(saleOrder[4].text, 'CN¥48.00');
     assert.match(saleOrder[7].text, /Edit/);
     assert.match(saleOrder[7].text, /Delete/);
+    assert.equal(await page.$('[data-id="sale-sw"] .arrow'), null);
+    await page.setViewport({ width: 390, height: 844, isMobile: true, hasTouch: true, deviceScaleFactor: 2 });
+    await page.evaluate(() => {
+      const scroller = document.getElementById('main');
+      const card = document.querySelector('[data-id="sale-sw"]');
+      const origin = scroller.getBoundingClientRect().top;
+      scroller.scrollTop = Math.max(0, card.getBoundingClientRect().top - origin + scroller.scrollTop - 12);
+    });
+    await clipShot(page, '[data-id="sale-sw"]', `${REPORTS}/sell-no-arrow.png`, 12);
 
     await go(page, '#home', '#month-title');
     await page.setViewport({ width: 390, height: 844, isMobile: true, hasTouch: true, deviceScaleFactor: 2 });
