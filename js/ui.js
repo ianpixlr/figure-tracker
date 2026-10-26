@@ -980,11 +980,11 @@ function settingsView(data, corrupt) {
     ? 'Saved data could not be read. Import a backup, or erase the unreadable copy.'
     : settingsPreview(settings, data.purchases);
   return `
-    <section>
+    <section class="settings-page">
       <h2>Settings</h2>
       ${corrupt ? '<p class="banner" id="corrupt-note">Saved data on this device could not be read.</p>' : ''}
       <form class="panel" id="settings-form" novalidate>
-        <div data-edge>
+        <div class="setting" data-edge>
           <p class="kicker" id="theme-label">Theme</p>
           ${chips('theme', [
             { value: 'light', label: 'Light' },
@@ -992,25 +992,27 @@ function settingsView(data, corrupt) {
             { value: 'system', label: 'Match phone' }
           ], readTheme(localStorage), 'Theme')}
         </div>
-        <label class="field" data-edge for="field-cap">Monthly cap (RM)
+        <label class="field setting" data-edge for="field-cap">Monthly cap (RM)
           <input id="field-cap" name="cap" inputmode="decimal" autocomplete="off" value="${esc(settings.monthlyCap.toFixed(2))}">
           <span class="meta">${withAmounts('The limit for each calendar month, in Malaysia time. It starts at RM 400.00.')}</span>
         </label>
-        <label class="checkline" data-edge>
-          <input id="field-rollover" name="rollover" type="checkbox" ${settings.rollover ? 'checked' : ''}>
-          <span>
-            <span class="check-title">Unspent money rolls over</span>
-            <span class="meta">Adds whatever you did not spend last month to this month's cap. Off by default.</span>
-          </span>
-        </label>
-        <label class="checkline" data-edge>
-          <input id="field-payback" name="payback" type="checkbox" ${settings.overspendPayback ? 'checked' : ''}>
-          <span>
-            <span class="check-title">Overspend comes out of next month</span>
-            <span class="meta">${withAmounts("If a month ends over the cap, that amount lowers the next month. The cap does not go below RM 0.00. On by default.")}</span>
-          </span>
-        </label>
-        <label class="field" data-edge for="field-sync">Sheet sync URL
+        <div class="setting checks" data-edge>
+          <label class="checkline">
+            <input id="field-rollover" name="rollover" type="checkbox" ${settings.rollover ? 'checked' : ''}>
+            <span>
+              <span class="check-title">Unspent money rolls over</span>
+              <span class="meta">Adds whatever you did not spend last month to this month's cap. Off by default.</span>
+            </span>
+          </label>
+          <label class="checkline">
+            <input id="field-payback" name="payback" type="checkbox" ${settings.overspendPayback ? 'checked' : ''}>
+            <span>
+              <span class="check-title">Overspend comes out of next month</span>
+              <span class="meta">${withAmounts("If a month ends over the cap, that amount lowers the next month. The cap does not go below RM 0.00. On by default.")}</span>
+            </span>
+          </label>
+        </div>
+        <label class="field setting" data-edge for="field-sync">Sheet sync URL
           <input id="field-sync" name="syncUrl" inputmode="url" autocomplete="off" placeholder="https://script.google.com/macros/s/DEPLOYMENT_ID/exec" value="${esc(syncFieldValue(settings))}">
           <span class="meta">Leave blank to use the built-in sheet. A different web app URL replaces it. Rates come from the European Central Bank via Frankfurter, with a cached rate when you are offline.</span>
         </label>
@@ -1019,8 +1021,7 @@ function settingsView(data, corrupt) {
         <button class="btn btn-primary" type="submit">Save settings</button>
       </form>
       <button class="btn btn-ghost" id="sync-all" type="button" data-action="sync-all">Sync all now</button>
-      ${categorySettings(settings)}
-      <section class="panel">
+      <section class="panel" id="backup">
         <h3>Backup</h3>
         <p class="meta">Export a JSON file of purchases, the wishlist, listings, and settings. Import replaces what is on this device.</p>
         <div class="btn-row">
@@ -1136,19 +1137,23 @@ function typeFilterOptions(data) {
   return [['', 'All'], ...typeOptions(data.settings.categories || []).filter((item) => item.value).map((item) => [item.value, item.label])];
 }
 
+function typeChip(option, selected, removable) {
+  return `
+    <label class="chip">
+      <input type="radio" name="figureType" value="${esc(option.value)}" ${option.value === selected ? 'checked' : ''}>
+      <span>${esc(option.label)}</span>
+      ${removable ? `<button class="chip-x" type="button" data-action="remove-category" data-name="${esc(option.value)}" aria-label="Remove ${esc(option.label)}">×</button>` : ''}
+    </label>`;
+}
+
 function typePicker(selected, categories = []) {
-  const options = typeOptions(categories);
   return `
     <div class="type-field" data-edge>
       <p class="kicker">Type</p>
       <div class="chips" data-type-chips>
         <div class="chip-set" role="radiogroup" aria-label="Type">
-          ${options.map((option) => `
-            <label class="chip">
-              <input type="radio" name="figureType" value="${esc(option.value)}" ${option.value === selected ? 'checked' : ''}>
-              <span>${esc(option.label)}</span>
-            </label>
-          `).join('')}
+          ${FIGURE_TYPES.map((option) => typeChip(option, selected, false)).join('')}
+          ${categories.map((name) => typeChip({ value: name, label: name }, selected, true)).join('')}
         </div>
         <button class="chip" type="button" data-action="new-category">+ New</button>
       </div>
@@ -1158,22 +1163,6 @@ function typePicker(selected, categories = []) {
         <p class="category-error" data-category-error role="alert" hidden></p>
       </div>
     </div>
-  `;
-}
-
-function categorySettings(settings) {
-  const categories = settings.categories || [];
-  return `
-    <section class="panel" id="categories">
-      <h3>Categories</h3>
-      <p class="meta">Custom types for the log. Built-in types stay.</p>
-      ${categories.length ? `<ul class="category-list">${categories.map((name) => `
-        <li>
-          <span>${esc(name)}</span>
-          <button class="icon-btn" type="button" data-action="remove-category" data-name="${esc(name)}" aria-label="Remove ${esc(name)}">×</button>
-        </li>
-      `).join('')}</ul>` : '<p class="empty">No custom categories yet. Add one from the log.</p>'}
-    </section>
   `;
 }
 
@@ -1346,7 +1335,10 @@ function onClick(event) {
   }
   if (action === 'new-category') showNewCategory(button);
   if (action === 'add-category') addCategoryFromForm(button);
-  if (action === 'remove-category') askRemoveCategory(button.dataset.name || '');
+  if (action === 'remove-category') {
+    event.preventDefault();
+    askRemoveCategory(button.dataset.name || '');
+  }
   if (action === 'confirm-remove-category') confirmRemoveCategory(button.dataset.name || '');
 }
 
@@ -1398,7 +1390,14 @@ function addCategoryFromForm(source) {
     radio.value = name;
     const text = document.createElement('span');
     text.textContent = name;
-    label.append(radio, text);
+    const remove = document.createElement('button');
+    remove.type = 'button';
+    remove.className = 'chip-x';
+    remove.dataset.action = 'remove-category';
+    remove.dataset.name = name;
+    remove.setAttribute('aria-label', `Remove ${name}`);
+    remove.textContent = '×';
+    label.append(radio, text, remove);
     set.append(label);
     radio.checked = true;
   } else if (existing) {

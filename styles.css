@@ -512,6 +512,13 @@ html[data-mode="dark"] .block {
   font-weight: 400;
 }
 
+.field .meta {
+  margin: 0;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--meta);
+}
+
 .note { margin: 8px 0 0; white-space: pre-wrap; }
 
 .stats, .spec, .spec-grid {
@@ -614,6 +621,22 @@ html[data-mode="dark"] .block {
   white-space: nowrap;
 }
 
+.chip:has(.chip-x) { padding-right: 4px; }
+
+.chip-x {
+  flex: 0 0 auto;
+  align-self: stretch;
+  width: 32px;
+  min-height: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 99px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+
 .tools {
   display: flex;
   align-items: center;
@@ -648,6 +671,43 @@ html[data-mode="dark"] .block {
   gap: 6px;
   margin: 0;
 }
+
+.field input,
+.field select,
+.field textarea {
+  min-width: 0;
+  max-width: 100%;
+}
+
+#field-sync {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.settings-page {
+  display: grid;
+  gap: 24px;
+}
+
+.settings-page > h2 { margin: var(--step) 0 0; }
+
+#settings-form {
+  display: grid;
+  gap: 20px;
+}
+
+#settings-form .setting {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+
+#settings-form .checks { gap: 14px; }
+
+#settings-form .checkline { margin: 0; }
+
+#settings-form .chips { margin: 0; }
 
 .group { padding: 0 var(--card-pad); }
 
@@ -1078,29 +1138,6 @@ button:disabled { opacity: 0.45; cursor: not-allowed; }
   background: var(--yellow);
   color: #161616;
   pointer-events: auto;
-}
-
-.category-list {
-  list-style: none;
-  margin: 12px 0 0;
-  padding: 0;
-}
-
-.category-list li {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-height: 48px;
-}
-
-.category-list li + li { border-top: 1px solid var(--line); }
-
-.category-list li span {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 dialog {
