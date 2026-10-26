@@ -501,6 +501,94 @@ async function assertShell(page) {
   assert.equal(shell.preload, true);
 }
 
+async function clipShot(page, selector, path, pad = 8) {
+  const box = await page.evaluate((sel) => {
+    const rect = document.querySelector(sel).getBoundingClientRect();
+    return { x: rect.x, y: rect.y, width: rect.width, height: rect.height, inner: window.innerWidth, innerHeight: window.innerHeight };
+  }, selector);
+  const x = Math.max(0, box.x - pad);
+  const y = Math.max(0, box.y - pad);
+  const width = Math.min(box.inner - x, box.width + pad * 2);
+  const height = Math.min(box.innerHeight - y, box.height + pad * 2);
+  await page.screenshot({ path, clip: { x, y, width, height } });
+}
+
+async function showSyncing(page) {
+  await page.evaluate(() => {
+    document.getElementById('sync-status').textContent = 'Syncing…';
+    document.getElementById('main').focus();
+  });
+}
+
+async function assertHeaderDivider(page) {
+  const result = await page.evaluate(() => {
+    const top = document.querySelector('.top');
+    const main = document.getElementById('main');
+    main.focus();
+    const topStyle = getComputedStyle(top);
+    const topRect = top.getBoundingClientRect();
+    const border = parseFloat(topStyle.borderBottomWidth);
+    const lineTop = topRect.bottom - border;
+    const gaps = [...document.querySelectorAll('.monogram, .top .icon-btn')].map((el) => lineTop - el.getBoundingClientRect().bottom);
+    return {
+      border,
+      borderStyle: topStyle.borderBottomStyle,
+      gaps,
+      outline: getComputedStyle(main).outlineStyle,
+      status: document.getElementById('sync-status').textContent
+    };
+  });
+  assert.equal(result.border, 1);
+  assert.equal(result.borderStyle, 'solid');
+  assert.equal(result.outline, 'none');
+  assert.equal(result.status, 'Syncing…');
+  assert.ok(result.gaps.length >= 2, JSON.stringify(result));
+  for (const gap of result.gaps) assert.ok(gap >= 8, `header gap ${gap}`);
+}
+
+async function safeAreaInsets(page) {
+  return page.evaluate(() => {
+    const probe = document.createElement('div');
+    probe.style.cssText = 'position:absolute;padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left)';
+    document.body.appendChild(probe);
+    const style = getComputedStyle(probe);
+    const insets = {
+      top: parseFloat(style.paddingTop) || 0,
+      right: parseFloat(style.paddingRight) || 0,
+      bottom: parseFloat(style.paddingBottom) || 0,
+      left: parseFloat(style.paddingLeft) || 0
+    };
+    probe.remove();
+    return insets;
+  });
+}
+
+async function assertNavOnScreen(page, expectedPad) {
+  const result = await page.evaluate(() => {
+    const nav = document.querySelector('.nav');
+    const link = nav.querySelector('a');
+    const navRect = nav.getBoundingClientRect();
+    const linkRect = link.getBoundingClientRect();
+    const body = document.body.getBoundingClientRect();
+    const mono = document.querySelector('.monogram').getBoundingClientRect();
+    return {
+      navBottom: navRect.bottom,
+      innerHeight: window.innerHeight,
+      linkGap: window.innerHeight - linkRect.bottom,
+      bodyHeight: body.height,
+      bodyTop: body.top,
+      monoTop: mono.top,
+      pad: parseFloat(getComputedStyle(nav).paddingBottom)
+    };
+  });
+  assert.ok(Math.abs(result.navBottom - result.innerHeight) < 1, JSON.stringify(result));
+  assert.ok(Math.abs(result.bodyTop) < 1, JSON.stringify(result));
+  assert.ok(Math.abs(result.bodyHeight - result.innerHeight) < 1, JSON.stringify(result));
+  assert.ok(Math.abs(result.pad - expectedPad) < 1, JSON.stringify(result));
+  assert.ok(Math.abs(result.linkGap - expectedPad) < 2, JSON.stringify(result));
+  return result;
+}
+
 async function assertNoFocusZoom(page) {
   await page.focus('#field-name');
   const zoom = await page.evaluate(() => ({
@@ -850,7 +938,7 @@ async function main() {
     assert.match(entries, /Asuka/i);
     assert.match(entries, /Rei/i);
     assert.match(entries, /window/);
-    assert.match(entries, /Pre-order/);
+    assert.match(entries, /Fully paid/);
     assert.match(entries, /1\/12/);
     const asukaMeta = await page.evaluate(() => {
       const article = [...document.querySelectorAll('article.block')].find((el) => el.querySelector('h3')?.textContent.includes('Asuka'));
@@ -863,7 +951,7 @@ async function main() {
       const article = [...document.querySelectorAll('article.block')].find((el) => el.querySelector('h3')?.textContent.trim() === 'Rei');
       return article?.querySelector('p.meta')?.textContent.trim() || '';
     });
-    assert.match(reiMeta, /Pre-ordered$/);
+    assert.match(reiMeta, /^15 Jan$/);
     assert.equal(reiMeta.includes('Received'), false);
     assert.match(entries, /Good Smile/);
     await assertTypeScale(page);
@@ -1004,7 +1092,6 @@ async function main() {
     await page.waitForSelector('#chart');
     const migrated = await bodyText(page);
     assert.match(migrated, /Legacy/i);
-    assert.match(migrated, /Pre-order/);
     assert.match(migrated, /Fully paid/);
     assert.match(migrated, /box/);
     assert.equal(migrated.includes('Excited'), false);
@@ -1985,6 +2072,249 @@ async function main() {
       scroller.scrollTop = Math.max(0, card.getBoundingClientRect().top - origin + scroller.scrollTop - 8);
     });
     await page.screenshot({ path: `${REPORTS}/paid-totals-home.png` });
+
+    await page.evaluate(() => {
+      localStorage.setItem('figure-cap.v1', JSON.stringify({
+        settings: { monthlyCap: 2000, rollover: false, overspendPayback: true, trackingStart: '2026-10', syncUrl: '' },
+        purchases: [
+          {
+            id: 'soundwave',
+            name: 'Soundwave (Laserbeak)',
+            boughtAs: 'purchased',
+            status: 'received',
+            figureType: 'model-kit',
+            brand: 'Blokees',
+            series: 'Wheels C04',
+            shop: 'PinDuoDuo',
+            date: '2026-10-04',
+            price: 42.31,
+            originalAmount: 69.48,
+            currency: 'CNY',
+            fxRate: 0.61,
+            fxDate: '2026-10-04',
+            createdAt: '2026-10-04T00:00:00.000Z',
+            updatedAt: '2026-10-04T00:00:00.000Z'
+          },
+          {
+            id: 'shop-only',
+            name: 'Shop only',
+            boughtAs: 'purchased',
+            status: 'received',
+            date: '2026-10-03',
+            shop: 'Shopee',
+            price: 10,
+            originalAmount: 10,
+            currency: 'MYR',
+            fxRate: 1,
+            createdAt: '2026-10-03T00:00:00.000Z',
+            updatedAt: '2026-10-03T00:00:00.000Z'
+          },
+          {
+            id: 'foreign-only',
+            name: 'Foreign only',
+            boughtAs: 'purchased',
+            status: 'received',
+            date: '2026-10-02',
+            price: 20,
+            originalAmount: 30,
+            currency: 'CNY',
+            fxRate: 0.67,
+            fxDate: '2026-10-02',
+            createdAt: '2026-10-02T00:00:00.000Z',
+            updatedAt: '2026-10-02T00:00:00.000Z'
+          },
+          {
+            id: 'plain',
+            name: 'Plain',
+            boughtAs: 'purchased',
+            status: 'received',
+            date: '2026-10-01',
+            price: 15,
+            originalAmount: 15,
+            currency: 'MYR',
+            fxRate: 1,
+            createdAt: '2026-10-01T00:00:00.000Z',
+            updatedAt: '2026-10-01T00:00:00.000Z'
+          }
+        ],
+        wishlist: [
+          {
+            id: 'wish-sw',
+            name: 'Shockwave',
+            priority: 'really',
+            price: 50,
+            originalAmount: 80,
+            currency: 'CNY',
+            fxRate: 0.62,
+            fxDate: '2026-10-01',
+            addedAt: '2026-10-01T00:00:00.000Z',
+            updatedAt: '2026-10-01T00:00:00.000Z'
+          }
+        ],
+        forSale: [
+          {
+            id: 'sale-sw',
+            name: 'Ravage',
+            brand: 'Blokees',
+            series: 'Wheels C04',
+            condition: 'MISB',
+            status: 'listed',
+            price: 30,
+            originalAmount: 48,
+            currency: 'CNY',
+            fxRate: 0.62,
+            fxDate: '2026-10-01',
+            createdAt: '2026-10-01T00:00:00.000Z',
+            updatedAt: '2026-10-01T00:00:00.000Z'
+          }
+        ]
+      }));
+      location.hash = '#entries';
+      window.__figureCap.setNow('2026-10-26T04:00:00Z');
+    });
+    await page.waitForSelector('[data-id="soundwave"] h3');
+    const cardOrder = await page.evaluate(() => {
+      const read = (id) => {
+        const article = document.querySelector(`[data-id="${id}"]`);
+        return [...article.children].map((el) => {
+          let kind = 'other';
+          if (el.classList.contains('card-head')) kind = 'tags';
+          else if (el.tagName === 'H3') kind = 'name';
+          else if (el.classList.contains('block-value')) kind = 'price';
+          else if (el.classList.contains('meta')) kind = 'meta';
+          else if (el.classList.contains('btn-row')) kind = 'actions';
+          return { kind, text: el.textContent.replace(/\s+/g, ' ').trim() };
+        });
+      };
+      const sound = read('soundwave');
+      const meta = document.querySelector('[data-id="soundwave"] .meta');
+      const price = document.querySelector('[data-id="soundwave"] .block-value');
+      const name = document.querySelector('[data-id="soundwave"] h3');
+      return {
+        sound,
+        shop: read('shop-only'),
+        foreign: read('foreign-only'),
+        plain: read('plain'),
+        fonts: {
+          tag: getComputedStyle(document.querySelector('[data-id="soundwave"] .tag')).fontSize,
+          meta: getComputedStyle(meta).fontSize,
+          metaWeight: getComputedStyle(meta).fontWeight,
+          name: getComputedStyle(name).fontSize,
+          price: getComputedStyle(price).fontSize
+        }
+      };
+    });
+    assert.deepEqual(cardOrder.sound.map((row) => row.kind), ['tags', 'meta', 'name', 'price', 'meta', 'actions']);
+    assert.match(cardOrder.sound[0].text, /Model Kit/);
+    assert.equal(cardOrder.sound[1].text, '4 Oct · Blokees · Wheels C04');
+    assert.equal(cardOrder.sound[2].text, 'Soundwave (Laserbeak)');
+    assert.equal(cardOrder.sound[3].text, 'RM 42.31');
+    assert.equal(cardOrder.sound[4].text, 'CN¥69.48 · PinDuoDuo');
+    assert.match(cardOrder.sound[5].text, /Edit/);
+    assert.match(cardOrder.sound[5].text, /Delete/);
+    assert.equal(cardOrder.shop.filter((row) => row.kind === 'meta').map((row) => row.text).join('|'), '3 Oct|Shopee');
+    assert.equal(cardOrder.foreign.filter((row) => row.kind === 'meta').map((row) => row.text).join('|'), '2 Oct|CN¥30.00');
+    assert.deepEqual(cardOrder.plain.filter((row) => row.kind === 'meta').map((row) => row.text), ['1 Oct']);
+    assert.equal(cardOrder.fonts.tag, '15px');
+    assert.equal(cardOrder.fonts.meta, '15px');
+    assert.equal(cardOrder.fonts.metaWeight, '400');
+    assert.equal(cardOrder.fonts.name, '22px');
+    assert.equal(cardOrder.fonts.price, '22px');
+    await page.evaluate(() => {
+      const scroller = document.getElementById('main');
+      const card = document.querySelector('[data-id="soundwave"]');
+      const origin = scroller.getBoundingClientRect().top;
+      scroller.scrollTop = Math.max(0, card.getBoundingClientRect().top - origin + scroller.scrollTop - 12);
+    });
+    await assertTypeScale(page);
+    await assertNoOverflow(page);
+    await page.screenshot({ path: `${REPORTS}/log-card-after.png` });
+
+    await go(page, '#wish', '[data-id="wish-sw"]');
+    const wishOrder = await page.evaluate(() => {
+      const article = document.querySelector('[data-id="wish-sw"]');
+      return [...article.children].map((el) => ({
+        kind: el.classList.contains('card-head') ? 'tags'
+          : el.tagName === 'H3' ? 'name'
+            : el.classList.contains('block-value') ? 'price'
+              : el.classList.contains('meta') ? 'meta'
+                : el.classList.contains('btn-row') ? 'actions' : 'other',
+        text: el.textContent.replace(/\s+/g, ' ').trim()
+      }));
+    });
+    assert.deepEqual(wishOrder.map((row) => row.kind), ['tags', 'name', 'price', 'meta', 'meta', 'actions']);
+    assert.match(wishOrder[0].text, /Really want/);
+    assert.equal(wishOrder[1].text, 'Shockwave');
+    assert.equal(wishOrder[2].text, 'RM 50.00');
+    assert.equal(wishOrder[3].text, 'CN¥80.00');
+    assert.match(wishOrder[4].text, /Fits this month|what's left/);
+    assert.match(wishOrder[5].text, /Log purchase/);
+    assert.match(wishOrder[5].text, /Remove/);
+
+    await go(page, '#sell', '[data-id="sale-sw"]');
+    const saleOrder = await page.evaluate(() => {
+      const article = document.querySelector('[data-id="sale-sw"]');
+      return [...article.children].map((el) => ({
+        kind: el.classList.contains('card-head') ? 'tags'
+          : el.tagName === 'H3' ? 'name'
+            : el.classList.contains('block-value') ? 'price'
+              : el.classList.contains('meta') ? 'meta'
+                : el.classList.contains('search-pills') ? 'search'
+                  : el.classList.contains('check') ? 'check'
+                    : el.classList.contains('btn-row') ? 'actions' : 'other',
+        text: el.textContent.replace(/\s+/g, ' ').trim()
+      }));
+    });
+    assert.deepEqual(saleOrder.map((row) => row.kind), ['tags', 'meta', 'name', 'price', 'meta', 'search', 'check', 'actions']);
+    assert.match(saleOrder[0].text, /MISB/);
+    assert.match(saleOrder[0].text, /Listed/);
+    assert.equal(saleOrder[1].text, 'Blokees · Wheels C04');
+    assert.equal(saleOrder[2].text, 'Ravage');
+    assert.equal(saleOrder[3].text, 'RM 30.00');
+    assert.equal(saleOrder[4].text, 'CN¥48.00');
+    assert.match(saleOrder[7].text, /Edit/);
+    assert.match(saleOrder[7].text, /Delete/);
+
+    await go(page, '#home', '#month-title');
+    await page.setViewport({ width: 390, height: 844, isMobile: true, hasTouch: true, deviceScaleFactor: 2 });
+    await showSyncing(page);
+    await assertHeaderDivider(page);
+    await clipShot(page, '.top', `${REPORTS}/header-after.png`, 0);
+    await page.evaluate(() => {
+      localStorage.setItem('figure-cap.theme', 'dark');
+      document.documentElement.dataset.mode = 'dark';
+      document.documentElement.dataset.theme = 'dark';
+    });
+    await showSyncing(page);
+    await assertHeaderDivider(page);
+    await clipShot(page, '.top', `${REPORTS}/header-after-dark.png`, 0);
+    await page.setViewport({ width: 320, height: 844, isMobile: true, hasTouch: true, deviceScaleFactor: 2 });
+    await showSyncing(page);
+    await assertHeaderDivider(page);
+    await assertNoOverflow(page);
+    await page.setViewport({ width: 390, height: 844, isMobile: true, hasTouch: true, deviceScaleFactor: 2 });
+    await page.evaluate(() => {
+      localStorage.setItem('figure-cap.theme', 'light');
+      document.documentElement.dataset.mode = 'light';
+      document.documentElement.dataset.theme = 'light';
+    });
+    await showSyncing(page);
+    const session = await page.createCDPSession();
+    await session.send('Emulation.setSafeAreaInsetsOverride', {
+      insets: { top: 59, bottom: 34, left: 0, right: 0, topMax: 59, bottomMax: 34, leftMax: 0, rightMax: 0 }
+    });
+    await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+    const insets = await safeAreaInsets(page);
+    assert.equal(insets.top, 59);
+    assert.equal(insets.bottom, 34);
+    const navBox = await assertNavOnScreen(page, 22);
+    assert.ok(navBox.monoTop >= 59 + 20 && navBox.monoTop <= 59 + 28, JSON.stringify(navBox));
+    await clipShot(page, '.nav', `${REPORTS}/nav-after.png`, 0);
+    await session.send('Emulation.setSafeAreaInsetsOverride', {
+      insets: { top: 0, bottom: 0, left: 0, right: 0, topMax: 0, bottomMax: 0, leftMax: 0, rightMax: 0 }
+    });
+    await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+    await assertNavOnScreen(page, 6);
 
     const sw = await page.evaluate(async () => {
       const reg = await navigator.serviceWorker.ready;

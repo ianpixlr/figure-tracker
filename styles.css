@@ -60,7 +60,9 @@
   --card-btn-ink: #161616;
   --card-line: transparent;
   --accent: #141414;
-  --nav-h: calc(72px + env(safe-area-inset-bottom));
+  /* Icons sit just above the home indicator. The bar's background still fills the safe area. */
+  --nav-pad-bottom: max(6px, calc(env(safe-area-inset-bottom, 0px) - 12px));
+  --nav-h: calc(59px + var(--nav-pad-bottom));
   --display: "Archivo Black", "Archivo Fallback", "Arial Black", sans-serif;
   --sans: system-ui, sans-serif;
 }
@@ -106,7 +108,13 @@ html[data-mode="dark"] {
 [hidden] { display: none !important; }
 
 html {
-  height: 100%;
+  /* 100% is shorter than the screen in an iOS standalone app, so bottom:0 floats. */
+  height: 100vh;
+  height: -webkit-fill-available;
+  height: 100dvh;
+  min-height: 100vh;
+  min-height: -webkit-fill-available;
+  min-height: 100dvh;
   overflow: hidden;
   overscroll-behavior: none;
   touch-action: manipulation;
@@ -118,7 +126,12 @@ body {
   position: fixed;
   inset: 0;
   width: 100%;
-  height: 100%;
+  height: 100vh;
+  height: -webkit-fill-available;
+  height: 100dvh;
+  min-height: 100vh;
+  min-height: -webkit-fill-available;
+  min-height: 100dvh;
   margin: 0;
   overflow: hidden;
   overscroll-behavior: none;
@@ -185,6 +198,13 @@ button, a, label, input, select, textarea { touch-action: manipulation; }
   outline-offset: 3px;
 }
 
+/* The scroller is focused for skip-to-content. Its ring is drawn outside the box
+   and would cut through the header buttons, so the header keeps the only line. */
+main:focus,
+main:focus-visible {
+  outline: none;
+}
+
 .skip {
   position: absolute;
   left: var(--gutter);
@@ -227,6 +247,8 @@ button, a, label, input, select, textarea { touch-action: manipulation; }
 .top {
   flex: 0 0 auto;
   padding-top: calc(var(--step) + env(safe-area-inset-top));
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--line);
   background: var(--bg);
 }
 
@@ -470,6 +492,7 @@ html[data-mode="dark"] .block {
 .block .check-empty { color: var(--card-muted); }
 
 .block > .kicker,
+.block > .card-head + .meta,
 .block > .card-head + h3,
 .block > .card-head + .block-value { margin-top: 8px; }
 
@@ -1096,7 +1119,7 @@ button:disabled { opacity: 0.45; cursor: not-allowed; }
   align-items: center;
   background: var(--bg);
   border-top: 1px solid var(--line);
-  padding: 6px 6px env(safe-area-inset-bottom);
+  padding: 6px 6px var(--nav-pad-bottom);
 }
 
 .nav a {
