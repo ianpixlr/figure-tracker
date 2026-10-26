@@ -60,9 +60,9 @@
   --card-btn-ink: #161616;
   --card-line: transparent;
   --accent: #141414;
-  /* Icons sit just above the home indicator. The bar's background still fills the safe area. */
-  --nav-pad-bottom: max(6px, calc(env(safe-area-inset-bottom, 0px) - 12px));
-  --nav-h: calc(59px + var(--nav-pad-bottom));
+  /* ~49px of icon and label, then about 20px under the labels on a 34px inset. */
+  --nav-pad-bottom: max(calc(env(safe-area-inset-bottom, 0px) - 14px), 8px);
+  --nav-h: calc(51px + var(--nav-pad-bottom));
   --display: "Archivo Black", "Archivo Fallback", "Arial Black", sans-serif;
   --sans: system-ui, sans-serif;
 }
@@ -294,7 +294,7 @@ main {
   min-height: 0;
   min-width: 0;
   padding-top: 0;
-  padding-bottom: calc(var(--nav-h) + 16px);
+  padding-bottom: calc(var(--nav-h) + 8px);
   overflow-x: hidden;
   overflow-y: auto;
   overscroll-behavior: none;
@@ -769,7 +769,7 @@ html[data-mode="dark"] .block {
 
 input, select, textarea, .btn, .chip, .search {
   scroll-margin-top: 16px;
-  scroll-margin-bottom: calc(var(--nav-h) + 16px);
+  scroll-margin-bottom: calc(var(--nav-h) + 8px);
 }
 
 input, select, textarea {
@@ -1117,21 +1117,26 @@ button:disabled { opacity: 0.45; cursor: not-allowed; }
   width: min(480px, 100%);
   transform: translateX(-50%);
   align-items: center;
+  min-height: 0;
+  height: auto;
   background: var(--bg);
   border-top: 1px solid var(--line);
   padding: 6px 6px var(--nav-pad-bottom);
 }
 
 .nav a {
+  position: relative;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 3px;
-  min-height: 48px;
+  gap: 2px;
+  min-height: 0;
+  height: auto;
   margin: 0;
-  padding: 4px 2px;
-  border-radius: 14px;
+  padding: 4px 4px 2px;
+  border-radius: 12px;
+  line-height: 1.05;
   color: var(--nav-muted);
   font-family: var(--sans);
   font-weight: 400;
@@ -1144,6 +1149,15 @@ button:disabled { opacity: 0.45; cursor: not-allowed; }
 .nav a[aria-current="page"] {
   color: var(--ink);
   background: var(--nav-current);
+}
+
+.nav a::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 100%;
+  height: var(--nav-pad-bottom);
 }
 
 .nav svg { display: block; }
