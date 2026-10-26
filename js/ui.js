@@ -8,6 +8,7 @@ import {
   historyModel,
   homeModel,
   monthSnapshot,
+  monthSpent,
   percentLabel,
   planModel,
   statusLine,
@@ -558,7 +559,7 @@ function entriesView(data) {
     if (a.date !== b.date) return a.date < b.date ? 1 : -1;
     return String(b.createdAt).localeCompare(String(a.createdAt));
   });
-  const totals = categoryTotals(filtered);
+  const totals = categoryTotals(filtered, { year: filters.year, month: filters.month });
   const chart = history.charts.map((snapshot) => `
     <div class="chart-row">
       <div class="chart-top">
@@ -600,7 +601,7 @@ function entriesView(data) {
         `).join('')}
       </div>
     </article>
-    ${groups.length ? renderGroups(groups) : `<p class="empty">${data.purchases.length ? 'Nothing matches these filters.' : 'No purchases yet.'}</p>`}
+    ${groups.length ? renderGroups(groups, data.purchases) : `<p class="empty">${data.purchases.length ? 'Nothing matches these filters.' : 'No purchases yet.'}</p>`}
   `;
 }
 
@@ -640,22 +641,24 @@ function openFilters(data) {
   `);
 }
 
-function renderGroups(groups) {
+function renderGroups(groups, purchases) {
   let offset = 0;
   return groups.map((group) => {
-    const html = groupHtml(group, offset);
+    const html = groupHtml(group, offset, purchases);
     offset += group.purchases.length;
     return html;
   }).join('');
 }
 
-function groupHtml(group, offset) {
-  const cents = group.purchases.reduce((sum, item) => sum + Math.round(Number(figureAmount(item) || 0) * 100), 0);
+function groupHtml(group, offset, purchases) {
+  // Same number as the Monthly spend chart: money paid in this month, across the log.
+  // Entries stay grouped by purchase date, so the cards underneath can be a different set.
+  const total = monthSpent(purchases, group.ym);
   return `
     <section class="month-group">
       <header class="item-top">
         <h3>${esc(formatMonth(group.ym))}</h3>
-        <p>${formatRM(cents / 100)}</p>
+        <p>${formatRM(total)}</p>
       </header>
       ${group.purchases.map((purchase, index) => purchaseCard(purchase, offset + index)).join('')}
     </section>
