@@ -543,7 +543,9 @@ html[data-mode="dark"] .block.yellow {
 }
 
 .block.yellow .tag {
-  border-color: rgba(22, 22, 22, 0.22);
+  background: #fff;
+  color: #161616;
+  border-color: transparent;
 }
 
 .banner, .form-error, .category-error, .cap-note {
@@ -655,6 +657,13 @@ html[data-mode="dark"] .block.yellow {
   border-color: var(--chip-on-bg);
 }
 
+.chip:has(input[name="figureType"]:checked),
+.chip:has(input[name="condition"]:checked) {
+  background: var(--yellow);
+  color: #161616;
+  border-color: rgba(22, 22, 22, 0.22);
+}
+
 .chip input {
   position: absolute;
   width: 1px;
@@ -710,6 +719,10 @@ html[data-mode="dark"] .block.yellow {
   color: var(--chip-on-ink);
 }
 
+.chip:has(input[name="figureType"]:checked) .chip-x {
+  color: #161616;
+}
+
 .tools {
   display: flex;
   align-items: center;
@@ -717,9 +730,7 @@ html[data-mode="dark"] .block.yellow {
   margin-bottom: 10px;
 }
 
-#preorder-filter .meta { margin: 0; }
-
-#preorder-filter .text-btn { margin: 0 0 0 auto; }
+#category-totals + #entries-scope { margin-top: 10px; }
 
 .amt,
 .block-value,
