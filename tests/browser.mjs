@@ -463,6 +463,10 @@ async function assertTapTargets(page) {
         if (rect.width >= 32 && rect.height >= 32) return [];
         return [`${Math.round(rect.width)}x${Math.round(rect.height)} chip-x`];
       }
+      if (el.matches('.nav a')) {
+        if (rect.height >= 40) return [];
+        return [`${Math.round(rect.height)}px nav ${el.textContent.trim().slice(0, 20)}`];
+      }
       if (rect.height >= 47) return [];
       return [`${Math.round(rect.height)}px ${el.tagName}.${el.className} ${(el.textContent || el.id || '').trim().slice(0, 40)}`];
     });
@@ -566,19 +570,46 @@ async function safeAreaInsets(page) {
 async function assertNavOnScreen(page, expectedPad) {
   const result = await page.evaluate(() => {
     const nav = document.querySelector('.nav');
-    const link = nav.querySelector('a');
+    const link = nav.querySelector('a[aria-current="page"]') || nav.querySelector('a');
+    const style = getComputedStyle(nav);
+    const linkStyle = getComputedStyle(link);
     const navRect = nav.getBoundingClientRect();
     const linkRect = link.getBoundingClientRect();
     const body = document.body.getBoundingClientRect();
     const mono = document.querySelector('.monogram').getBoundingClientRect();
+    const text = [...link.childNodes].find((node) => node.nodeType === Node.TEXT_NODE && node.textContent.trim());
+    const host = document.createElement('div');
+    host.style.cssText = `position:absolute;left:-9999px;top:0;visibility:hidden;font:${linkStyle.font};line-height:${linkStyle.lineHeight};white-space:nowrap`;
+    host.append(document.createTextNode(text.textContent));
+    const marker = document.createElement('span');
+    marker.style.cssText = 'display:inline-block;width:0;height:0;vertical-align:baseline;padding:0;margin:0;border:0';
+    host.append(marker);
+    document.body.append(host);
+    const probe = document.createRange();
+    probe.setStart(host.firstChild, 0);
+    probe.setEnd(host.firstChild, host.firstChild.textContent.length);
+    const belowBaseline = probe.getBoundingClientRect().bottom - marker.getBoundingClientRect().bottom;
+    host.remove();
+    const live = document.createRange();
+    live.setStart(text, 0);
+    live.setEnd(text, text.textContent.length);
+    const line = live.getBoundingClientRect();
+    const mainPad = parseFloat(getComputedStyle(document.getElementById('main')).paddingBottom);
     return {
       navBottom: navRect.bottom,
+      navHeight: navRect.height,
       innerHeight: window.innerHeight,
       linkGap: window.innerHeight - linkRect.bottom,
+      linkHeight: linkRect.height,
+      baselineGap: window.innerHeight - (line.bottom - belowBaseline),
       bodyHeight: body.height,
       bodyTop: body.top,
       monoTop: mono.top,
-      pad: parseFloat(getComputedStyle(nav).paddingBottom)
+      pad: parseFloat(style.paddingBottom),
+      padTop: parseFloat(style.paddingTop),
+      minHeight: style.minHeight,
+      parentPad: parseFloat(getComputedStyle(nav.parentElement).paddingBottom) || 0,
+      mainPad
     };
   });
   assert.ok(Math.abs(result.navBottom - result.innerHeight) < 1, JSON.stringify(result));
@@ -586,6 +617,15 @@ async function assertNavOnScreen(page, expectedPad) {
   assert.ok(Math.abs(result.bodyHeight - result.innerHeight) < 1, JSON.stringify(result));
   assert.ok(Math.abs(result.pad - expectedPad) < 1, JSON.stringify(result));
   assert.ok(Math.abs(result.linkGap - expectedPad) < 2, JSON.stringify(result));
+  assert.equal(result.minHeight, '0px');
+  assert.equal(result.parentPad, 0);
+  assert.ok(result.padTop >= 6 && result.padTop <= 8, JSON.stringify(result));
+  assert.ok(result.linkHeight <= 50, JSON.stringify(result));
+  assert.ok(result.mainPad >= result.navHeight && result.mainPad - result.navHeight <= 12, JSON.stringify(result));
+  if (expectedPad === 20) {
+    assert.ok(result.navHeight >= 66 && result.navHeight <= 76, JSON.stringify(result));
+    assert.ok(result.baselineGap >= 18 && result.baselineGap <= 32, JSON.stringify(result));
+  }
   return result;
 }
 
@@ -2307,14 +2347,15 @@ async function main() {
     const insets = await safeAreaInsets(page);
     assert.equal(insets.top, 59);
     assert.equal(insets.bottom, 34);
-    const navBox = await assertNavOnScreen(page, 22);
+    const navBox = await assertNavOnScreen(page, 20);
     assert.ok(navBox.monoTop >= 59 + 20 && navBox.monoTop <= 59 + 28, JSON.stringify(navBox));
+    await page.screenshot({ path: `${REPORTS}/nav-tab-height.png` });
     await clipShot(page, '.nav', `${REPORTS}/nav-after.png`, 0);
     await session.send('Emulation.setSafeAreaInsetsOverride', {
       insets: { top: 0, bottom: 0, left: 0, right: 0, topMax: 0, bottomMax: 0, leftMax: 0, rightMax: 0 }
     });
     await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
-    await assertNavOnScreen(page, 6);
+    await assertNavOnScreen(page, 8);
 
     const sw = await page.evaluate(async () => {
       const reg = await navigator.serviceWorker.ready;
