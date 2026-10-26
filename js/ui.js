@@ -96,7 +96,7 @@ import {
 const ARROW = '<svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
 const SEARCH_ICON = '<svg class="search-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6.5" fill="none" stroke="currentColor" stroke-width="2"></circle><path d="M16 16.5 20.5 21" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"></path></svg>';
 const BACK = '<svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M15 5l-7 7 7 7" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
-const TONES = ['yellow', 'mint', 'lilac', 'coral', 'sky'];
+const TONES = ['yellow', 'mint'];
 const MONTHS = [
   ['01', 'Jan'], ['02', 'Feb'], ['03', 'Mar'], ['04', 'Apr'],
   ['05', 'May'], ['06', 'Jun'], ['07', 'Jul'], ['08', 'Aug'],
@@ -307,7 +307,7 @@ function homeView(data) {
           <p class="meta" data-edge>The log is the collection. The bar above is what is left of this month's cap.</p>
         </article>`}
       ${balances.count ? `
-        <article class="block lilac" id="balances-card">
+        <article class="block mint" id="balances-card">
           <div class="card-head" data-edge>
             <div class="tags"><span class="tag">Balances coming</span></div>
             <a class="arrow" href="#entries" aria-label="Open open pre-orders">${ARROW}</a>
@@ -315,7 +315,7 @@ function homeView(data) {
           <p class="block-value" data-edge>${formatRM(balances.total)}</p>
           <p class="meta" data-edge>${balances.count === 1 ? '1 open pre-order' : `${balances.count} open pre-orders`}</p>
         </article>` : ''}
-      <article class="block mint">
+      <article class="block ${balances.count ? 'yellow' : 'mint'}">
         <div class="card-head" data-edge>
           <div class="tags"><span class="tag">${esc(model.year)}</span></div>
           <a class="arrow" href="#entries" aria-label="Open the log">${ARROW}</a>
@@ -589,7 +589,7 @@ function entriesView(data) {
       <p class="meta">Every purchase, measured against that month's cap.${history.truncated ? ' Latest 8 months.' : ''}</p>
       ${chart || '<p class="empty">No purchases yet.</p>'}
     </section>
-    <article class="block lilac" id="category-totals">
+    <article class="block ${TONES[0] === 'yellow' ? 'mint' : 'yellow'}" id="category-totals">
       <p class="kicker" data-edge>By type</p>
       <div class="stats" data-edge>
         ${(totals.length ? totals : [{ label: 'Total', count: 0, total: 0 }]).map((row, index) => `
@@ -600,7 +600,7 @@ function entriesView(data) {
         `).join('')}
       </div>
     </article>
-    ${groups.length ? groups.map(groupHtml).join('') : `<p class="empty">${data.purchases.length ? 'Nothing matches these filters.' : 'No purchases yet.'}</p>`}
+    ${groups.length ? renderGroups(groups) : `<p class="empty">${data.purchases.length ? 'Nothing matches these filters.' : 'No purchases yet.'}</p>`}
   `;
 }
 
@@ -640,7 +640,16 @@ function openFilters(data) {
   `);
 }
 
-function groupHtml(group, groupIndex) {
+function renderGroups(groups) {
+  let offset = 0;
+  return groups.map((group) => {
+    const html = groupHtml(group, offset);
+    offset += group.purchases.length;
+    return html;
+  }).join('');
+}
+
+function groupHtml(group, offset) {
   const cents = group.purchases.reduce((sum, item) => sum + Math.round(Number(figureAmount(item) || 0) * 100), 0);
   return `
     <section class="month-group">
@@ -648,7 +657,7 @@ function groupHtml(group, groupIndex) {
         <h3>${esc(formatMonth(group.ym))}</h3>
         <p>${formatRM(cents / 100)}</p>
       </header>
-      ${group.purchases.map((purchase, index) => purchaseCard(purchase, groupIndex + index)).join('')}
+      ${group.purchases.map((purchase, index) => purchaseCard(purchase, offset + index)).join('')}
     </section>
   `;
 }
