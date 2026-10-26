@@ -17,11 +17,22 @@ import {
   wishlistModel,
   yearSpent
 } from '../js/budget.js';
-import { carousellSearchUrl, categoryTotals, filterPurchases, latestPriceCheck, rrpSearchUrl } from '../js/catalog.js';
+import {
+  carousellSearchUrl,
+  categoryError,
+  categoryTotals,
+  cleanCategories,
+  figureTypeLabel,
+  filterPurchases,
+  latestPriceCheck,
+  normalizeFigureType,
+  rrpSearchUrl
+} from '../js/catalog.js';
 import { formatRM, parseMoney, withAmounts } from '../js/money.js';
 import {
   emptyData,
   exportPayload,
+  forgetCategory,
   load,
   normalizeData,
   save,
@@ -374,6 +385,7 @@ test('storage defaults, import, and corrupt files', () => {
   assert.equal(emptyData('2026-11').settings.overspendPayback, true);
   assert.equal(emptyData('2026-11').settings.waitHours, undefined);
   assert.equal(emptyData('2026-11').settings.syncUrl, '');
+  assert.deepEqual(emptyData('2026-11').settings.categories, []);
   assert.deepEqual(emptyData('2026-11').forSale, []);
 });
 
@@ -445,7 +457,9 @@ test('filters, category totals, and the latest price check', () => {
   assert.equal(filterPurchases(purchases, { brand: 'Bandai', series: 'Gundam' }).length, 1);
   const totals = categoryTotals(filterPurchases(purchases, { year: '2026' }));
   assert.equal(totals.find((row) => row.figureType === 'nendoroid').total, 80);
-  assert.equal(totals.find((row) => row.figureType === '').label, 'Other');
+  assert.equal(totals.find((row) => row.figureType === '').label, 'Not set');
+  assert.equal(filterPurchases(purchases, { type: 'nendoroid' }).length, 1);
+  assert.equal(filterPurchases(purchases, { type: 'scale' }).length, 1);
 
   const listing = { id: 's1', name: 'Asuka', condition: 'MISB' };
   const checks = [
@@ -466,4 +480,138 @@ test('filters, category totals, and the latest price check', () => {
     `https://www.carousell.com.my/search/${encodeURIComponent('Asuka Langley MISB')}`
   );
   assert.equal(rrpSearchUrl('Asuka Langley'), `https://www.google.com/search?q=${encodeURIComponent('Asuka Langley RRP')}`);
+});
+
+test('figure types migrate once and custom categories persist', () => {
+  const input = {
+    settings: {
+      monthlyCap: 400,
+      trackingStart: '2026-10',
+      categories: [' Movie ', 'movie', 'Transformers', 'Way too long category name', 'Anniversary', 'nendoroid', '']
+    },
+    purchases: [
+      { id: 'f', name: 'Figma', price: 10, date: '2026-10-01', figureType: 'figma' },
+      { id: 'm', name: 'Kit', price: 10, date: '2026-10-01', figureType: 'model-kit' },
+      { id: 's', name: 'Scale', price: 10, date: '2026-10-01', figureType: 'scale' },
+      { id: 'n', name: 'Nendo', price: 10, date: '2026-10-01', type: 'nendoroid' },
+      { id: 'p', name: 'Prize', price: 10, date: '2026-10-01', figureType: 'prize' },
+      { id: 'o', name: 'Other', price: 10, date: '2026-10-01', figureType: 'other' },
+      { id: 'u', name: 'Unknown', price: 10, date: '2026-10-01', figureType: 'unknown' },
+      { id: 'q', name: 'Q', price: 10, date: '2026-10-01', figureType: '???' },
+      { id: 'e', name: 'Empty', price: 10, date: '2026-10-01', figureType: '' },
+      { id: 't', name: 'TF', price: 10, date: '2026-10-01', figureType: 'transformers' },
+      { id: 'label', name: 'Label', price: 10, date: '2026-10-01', figureType: '1/12' },
+      { id: 'word', name: 'Word', price: 10, date: '2026-10-01', figureType: 'Transformers' },
+      { id: 'kit-label', name: 'Kit label', price: 10, date: '2026-10-01', figureType: 'Model kit' },
+      { id: 'custom', name: 'Custom', price: 10, date: '2026-10-01', figureType: 'movie' },
+      { id: 'kept', name: 'Kept', price: 10, date: '2026-10-01', figureType: 'Anniversary' },
+      { id: 'stray', name: 'Stray', price: 10, date: '2026-10-01', figureType: 'Grail' },
+      {
+        id: 'order',
+        name: 'Order',
+        date: '2026-10-04',
+        type: 'preorder',
+        boughtAs: 'preorder',
+        estFullPrice: 200,
+        estFullCurrency: 'MYR',
+        depositAmountRm: 50,
+        depositCurrency: 'MYR',
+        depositDate: '2026-10-04'
+      },
+      { id: 'bought', name: 'Bought', price: 10, date: '2026-10-01', type: 'bought' }
+    ],
+    wishlist: [
+      { id: 'w1', name: 'Wish', price: 10, figureType: 'figma' },
+      { id: 'w2', name: 'Plain', price: 12 }
+    ],
+    forSale: [
+      { id: 'sale', name: 'Sale', price: 10, condition: 'MISB', figureType: 'nendoroid' }
+    ]
+  };
+  const once = normalizeData(input, '2026-10');
+  const twice = normalizeData(JSON.parse(JSON.stringify(once)), '2026-10');
+  const typeShape = (data) => ({
+    categories: data.settings.categories,
+    purchases: data.purchases.map((item) => [item.id, item.figureType, item.boughtAs]),
+    wishlist: data.wishlist.map((item) => [item.id, Object.hasOwn(item, 'figureType') ? item.figureType : null]),
+    forSale: data.forSale.map((item) => [item.id, item.figureType])
+  });
+  assert.deepEqual(typeShape(twice), typeShape(once));
+  assert.deepEqual(once.settings.categories, ['Movie', 'Anniversary']);
+  const byId = Object.fromEntries(once.purchases.map((item) => [item.id, item]));
+  assert.equal(byId.f.figureType, '1-12');
+  assert.equal(byId.m.figureType, 'model-kit');
+  assert.equal(byId.s.figureType, 'other');
+  assert.equal(byId.n.figureType, 'other');
+  assert.equal(byId.p.figureType, 'other');
+  assert.equal(byId.o.figureType, 'other');
+  assert.equal(byId.u.figureType, 'other');
+  assert.equal(byId.q.figureType, 'other');
+  assert.equal(byId.e.figureType, '');
+  assert.equal(byId.t.figureType, 'transformers');
+  assert.equal(byId.label.figureType, '1-12');
+  assert.equal(byId.word.figureType, 'transformers');
+  assert.equal(byId['kit-label'].figureType, 'model-kit');
+  assert.equal(byId.custom.figureType, 'Movie');
+  assert.equal(byId.kept.figureType, 'Anniversary');
+  assert.equal(byId.stray.figureType, 'other');
+  assert.equal(byId.order.figureType, '');
+  assert.equal(byId.order.boughtAs, 'preorder');
+  assert.equal(byId.bought.figureType, '');
+  assert.equal(byId.bought.boughtAs, 'purchased');
+  assert.equal(once.wishlist.find((item) => item.id === 'w1').figureType, '1-12');
+  assert.equal(Object.hasOwn(once.wishlist.find((item) => item.id === 'w2'), 'figureType'), false);
+  assert.equal(once.forSale[0].figureType, 'other');
+  assert.equal(figureTypeLabel(''), 'Not set');
+  assert.equal(figureTypeLabel('1-12'), '1/12');
+  assert.equal(figureTypeLabel('1-6'), '1/6');
+  assert.equal(figureTypeLabel('model-kit'), 'Model Kit');
+  assert.equal(figureTypeLabel('Movie'), 'Movie');
+  assert.equal(normalizeFigureType('transformers', []), 'transformers');
+  assert.equal(categoryError('', []), 'Enter a category name.');
+  assert.equal(categoryError('   ', []), 'Enter a category name.');
+  assert.equal(categoryError('x'.repeat(21), []), 'Use 20 characters or fewer.');
+  assert.equal(categoryError('x'.repeat(20), []), '');
+  assert.equal(categoryError('Transformers', []), 'That category already exists.');
+  assert.equal(categoryError('transformers', []), 'That category already exists.');
+  assert.equal(categoryError('1/12', []), 'That category already exists.');
+  assert.equal(categoryError('1-12', []), 'That category already exists.');
+  assert.equal(categoryError('Not set', []), 'That category already exists.');
+  assert.equal(categoryError('not-set', []), 'That category already exists.');
+  assert.equal(categoryError('Model Kit', []), 'That category already exists.');
+  assert.equal(categoryError('nendoroid', []), 'That category already exists.');
+  assert.equal(categoryError(' movie ', ['Movie']), 'That category already exists.');
+  assert.equal(categoryError('Movie', []), '');
+  assert.deepEqual(cleanCategories([' Movie ', 'movie', 'Transformers', 'Too long for a chip name', '']), ['Movie']);
+
+  const data = {
+    settings: { categories: ['Movie', 'Anniversary'] },
+    purchases: [
+      { id: 'a', figureType: 'Movie' },
+      { id: 'b', figureType: 'Anniversary' }
+    ],
+    wishlist: [{ id: 'w', figureType: 'movie' }],
+    forSale: [{ id: 's', figureType: 'Movie' }]
+  };
+  const changed = forgetCategory(data, 'Movie');
+  assert.deepEqual(data.settings.categories, ['Anniversary']);
+  assert.equal(data.purchases[0].figureType, 'other');
+  assert.equal(data.purchases[1].figureType, 'Anniversary');
+  assert.equal(data.wishlist[0].figureType, 'other');
+  assert.equal(data.forSale[0].figureType, 'other');
+  assert.deepEqual(changed.map((item) => item.id), ['a']);
+
+  const store = memory();
+  save(once, store);
+  const loaded = load('2026-10', store);
+  assert.deepEqual(loaded.data.settings.categories, ['Movie', 'Anniversary']);
+  assert.equal(loaded.data.purchases.find((item) => item.id === 'custom').figureType, 'Movie');
+  const again = load('2026-10', store);
+  assert.deepEqual(again.data, loaded.data);
+  assert.deepEqual(typeShape(again.data), typeShape(once));
+  const exported = exportPayload(loaded.data, '2026-10-26T00:00:00.000Z');
+  assert.deepEqual(exported.settings.categories, ['Movie', 'Anniversary']);
+  const imported = normalizeData(exported, '2026-10');
+  assert.equal(imported.purchases.find((item) => item.id === 'custom').figureType, 'Movie');
+  assert.equal(filterPurchases(imported.purchases, { type: 'Movie' }).map((item) => item.id).join(','), 'custom');
 });

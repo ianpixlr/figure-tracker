@@ -3,15 +3,28 @@
 import { fromCents, parseMoney, toCents } from './money.js';
 import { isYMD } from './time.js';
 
+// Built-in types, in the order the chips show them. Add a type by appending one
+// entry here. Not set is the empty default and stays first.
 export const FIGURE_TYPES = [
   { value: '', label: 'Not set' },
-  { value: 'scale', label: 'Scale' },
-  { value: 'nendoroid', label: 'Nendoroid' },
-  { value: 'figma', label: 'Figma' },
-  { value: 'prize', label: 'Prize' },
-  { value: 'model-kit', label: 'Model kit' },
-  { value: 'other', label: 'Other' }
+  { value: 'transformers', label: 'Transformers' },
+  { value: '1-12', label: '1/12' },
+  { value: '1-6', label: '1/6' },
+  { value: 'other', label: 'Other' },
+  { value: 'model-kit', label: 'Model Kit' }
 ];
+
+export const CATEGORY_MAX = 20;
+
+// Older logs used these names. Current values are recognised before this map,
+// so a new built-in type is not folded into Other on the next load.
+const LEGACY_FIGURE_TYPES = {
+  figma: '1-12',
+  scale: 'other',
+  nendoroid: 'other',
+  prize: 'other',
+  unknown: 'other'
+};
 
 export const BOUGHT_AS_OPTIONS = [
   { value: 'purchased', label: 'Purchased' },
@@ -45,8 +58,55 @@ export const SALE_STATUSES = [
 ];
 
 export function figureTypeLabel(value) {
-  if (!value) return 'Other';
-  return FIGURE_TYPES.find((item) => item.value === value)?.label || 'Other';
+  if (!value) return 'Not set';
+  return FIGURE_TYPES.find((item) => item.value === value)?.label || String(value);
+}
+
+function categoryKey(value) {
+  return String(value ?? '').trim().toLowerCase();
+}
+
+export function normalizeFigureType(value, customCategories = []) {
+  const raw = String(value ?? '').trim();
+  if (!raw) return '';
+  const direct = FIGURE_TYPES.find((item) => item.value && item.value === raw);
+  if (direct) return direct.value;
+  const key = categoryKey(raw);
+  const byLabel = FIGURE_TYPES.find((item) => item.value && item.label.toLowerCase() === key);
+  if (byLabel) return byLabel.value;
+  const slug = key.replace(/[\s_]+/g, '-');
+  const bySlug = FIGURE_TYPES.find((item) => item.value === slug);
+  if (bySlug) return bySlug.value;
+  if (LEGACY_FIGURE_TYPES[slug]) return LEGACY_FIGURE_TYPES[slug];
+  const custom = customCategories.find((name) => categoryKey(name) === key);
+  if (custom) return String(custom).trim();
+  return 'other';
+}
+
+export function categoryError(name, customCategories = []) {
+  const trimmed = String(name ?? '').trim();
+  if (!trimmed) return 'Enter a category name.';
+  if (trimmed.length > CATEGORY_MAX) return 'Use 20 characters or fewer.';
+  const key = categoryKey(trimmed);
+  const slug = key.replace(/[\s_]+/g, '-');
+  const builtIn = FIGURE_TYPES.some((item) => {
+    const label = item.label.toLowerCase();
+    if (label === key || label.replace(/[\s_]+/g, '-') === slug) return true;
+    return Boolean(item.value) && (item.value.toLowerCase() === key || item.value === slug);
+  });
+  if (builtIn || LEGACY_FIGURE_TYPES[slug]) return 'That category already exists.';
+  if (customCategories.some((item) => categoryKey(item) === key)) return 'That category already exists.';
+  return '';
+}
+
+export function cleanCategories(list) {
+  const names = [];
+  for (const item of Array.isArray(list) ? list : []) {
+    const name = String(item ?? '').trim();
+    if (categoryError(name, names)) continue;
+    names.push(name);
+  }
+  return names;
 }
 
 export function boughtAsLabel(value) {
@@ -97,6 +157,7 @@ export function filterPurchases(purchases, filters = {}) {
   const month = String(filters.month || '');
   const brand = String(filters.brand || '');
   const series = String(filters.series || '');
+  const type = String(filters.type || '');
   const query = String(filters.q || '').trim().toLowerCase();
   return purchases.filter((purchase) => {
     if (!isYMD(purchase.date)) return false;
@@ -104,6 +165,7 @@ export function filterPurchases(purchases, filters = {}) {
     if (month && purchase.date.slice(5, 7) !== month) return false;
     if (brand && purchase.brand !== brand) return false;
     if (series && purchase.series !== series) return false;
+    if (type && (purchase.figureType || '') !== type) return false;
     if (query && !String(purchase.name || '').toLowerCase().includes(query)) return false;
     return true;
   });

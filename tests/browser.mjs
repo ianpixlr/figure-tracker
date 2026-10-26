@@ -103,7 +103,8 @@ async function assertTextFits(page) {
       if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || tag === 'SVG' || tag === 'PATH') continue;
       const rect = el.getBoundingClientRect();
       if (rect.width < 2 || rect.height < 2) continue;
-      if (style.display !== 'inline' && el.scrollWidth > el.clientWidth + 1) {
+      const clips = style.textOverflow === 'ellipsis' && (style.overflowX === 'hidden' || style.overflowX === 'clip');
+      if (!clips && style.display !== 'inline' && el.scrollWidth > el.clientWidth + 1) {
         issues.push(`wide ${tag}.${String(el.className).slice(0, 40)} ${(el.textContent || '').trim().slice(0, 32)}`);
       }
     }
@@ -256,6 +257,17 @@ async function setDate(page, selector, value) {
 async function press(page, selector) {
   await page.waitForSelector(selector);
   await page.$eval(selector, (el) => el.click());
+}
+
+async function showTypeExtras(page) {
+  const opened = await page.evaluate(() => {
+    const more = document.querySelector('details.more');
+    if (!more) return false;
+    more.open = true;
+    more.querySelector('[data-action="new-category"]')?.click();
+    return true;
+  });
+  if (opened) await page.waitForSelector('[data-new-category]:not([hidden]) input');
 }
 
 async function clickLabel(page, label) {
@@ -691,12 +703,16 @@ async function main() {
     await typeInto(page, '#field-name', 'Asuka Langley Soryu Plugsuit Ver. 1/7 Scale');
     await typeInto(page, '#field-price', '80');
     await page.$eval('details.more', (el) => { el.open = true; });
-    await page.select('#field-type', 'nendoroid');
+    await clickLabel(page, '1/12');
     await typeInto(page, '#field-series', 'Neon Genesis Evangelion');
     await typeInto(page, '#field-brand', 'Good Smile');
     await typeInto(page, '#field-notes', 'window');
     await press(page, '#log-form button[type="submit"]');
     await page.waitForSelector('#month-title');
+    const latestMeta = await page.$eval('article.block.yellow p.meta', (el) => el.textContent.trim());
+    assert.match(latestMeta, /Neon Genesis Evangelion/);
+    assert.equal(latestMeta.includes('Received'), false);
+    assert.equal(latestMeta.includes('Purchased'), false);
     assert.equal(await text(page, '#spent-value'), 'RM 80.00');
     assert.equal(await text(page, '#left-value'), 'RM 320 / 400');
     assert.equal(await text(page, '#ytd-value'), 'RM 80.00');
@@ -719,7 +735,20 @@ async function main() {
     assert.match(entries, /Rei/i);
     assert.match(entries, /window/);
     assert.match(entries, /Pre-order/);
-    assert.match(entries, /Nendoroid/i);
+    assert.match(entries, /1\/12/);
+    const asukaMeta = await page.evaluate(() => {
+      const article = [...document.querySelectorAll('article.block')].find((el) => el.querySelector('h3')?.textContent.includes('Asuka'));
+      return article?.querySelector('p.meta')?.textContent.trim() || '';
+    });
+    assert.match(asukaMeta, /Good Smile · Neon Genesis Evangelion$/);
+    assert.equal(asukaMeta.includes('Received'), false);
+    assert.equal(asukaMeta.includes('Purchased'), false);
+    const reiMeta = await page.evaluate(() => {
+      const article = [...document.querySelectorAll('article.block')].find((el) => el.querySelector('h3')?.textContent.trim() === 'Rei');
+      return article?.querySelector('p.meta')?.textContent.trim() || '';
+    });
+    assert.match(reiMeta, /Pre-ordered$/);
+    assert.equal(reiMeta.includes('Received'), false);
     assert.match(entries, /Good Smile/);
     await assertTypeScale(page);
     await assertAlignment(page);
@@ -735,7 +764,7 @@ async function main() {
       return text.includes('asuka') && !text.includes('rei');
     });
     entries = await bodyText(page);
-    assert.match(entries, /Nendoroid/);
+    assert.match(entries, /1\/12/);
     assert.match(entries, /RM 80\.00/);
     await assertNoOverflow(page);
 
@@ -1166,6 +1195,14 @@ async function main() {
     assert.equal(saved.theme, undefined);
     assert.equal(Object.hasOwn(saved, 'theme'), false);
 
+    await page.evaluate(() => {
+      const data = JSON.parse(localStorage.getItem('figure-cap.v1'));
+      data.settings.categories = ['Anniversary Figure Y'];
+      const over = data.purchases.find((item) => item.id === 'over');
+      if (over) over.figureType = 'Anniversary Figure Y';
+      localStorage.setItem('figure-cap.v1', JSON.stringify(data));
+    });
+
     const screens = [
       ['#home', '#left-value'],
       ['#entries', '#chart'],
@@ -1186,6 +1223,7 @@ async function main() {
         await go(page, hash, ready);
         if (hash === '#log') {
           await clickLabel(page, 'Pre-order');
+          await showTypeExtras(page);
           await assertFocusRing(page, '#field-name');
         }
         if (hash === '#settings') await assertFocusRing(page, '#field-cap');
@@ -1213,6 +1251,7 @@ async function main() {
       ]) {
         await go(page, hash, ready);
         assert.equal(await page.$('#today-line'), null);
+        if (hash === '#log' || hash === '#edit/over') await showTypeExtras(page);
         if (hash === '#log') await clickLabel(page, 'Pre-order');
         if (hash === '#entries') {
           await assertSearchToolbar(page);
@@ -1227,6 +1266,92 @@ async function main() {
         await assertTextFits(page);
       }
     }
+
+    await page.setViewport({ width: 390, height: 844, isMobile: true, hasTouch: true, deviceScaleFactor: 2 });
+    await page.evaluate(() => {
+      const data = JSON.parse(localStorage.getItem('figure-cap.v1'));
+      data.settings.categories = [];
+      for (const purchase of data.purchases) {
+        if (purchase.figureType === 'Anniversary Figure Y') purchase.figureType = '';
+      }
+      localStorage.setItem('figure-cap.v1', JSON.stringify(data));
+      localStorage.setItem('figure-cap.theme', 'light');
+      document.documentElement.dataset.mode = 'light';
+      document.documentElement.dataset.theme = 'light';
+    });
+    await go(page, '#log', '#field-name');
+    await page.$eval('details.more', (el) => { el.open = true; });
+    const builtInChips = await page.evaluate(() => [...document.querySelectorAll('[data-type-chips] .chip')].map((el) => el.textContent.trim()));
+    assert.deepEqual(builtInChips, ['Not set', 'Transformers', '1/12', '1/6', 'Other', 'Model Kit', '+ New']);
+    await press(page, '[data-action="new-category"]');
+    await page.waitForSelector('[data-new-category]:not([hidden]) input');
+    await press(page, '[data-action="add-category"]');
+    await page.waitForSelector('[data-category-error]:not([hidden])');
+    assert.match(await text(page, '[data-category-error]'), /Enter a category name/);
+    await typeInto(page, '#field-new-category', 'Transformers');
+    await press(page, '[data-action="add-category"]');
+    assert.match(await text(page, '[data-category-error]'), /already exists/);
+    await typeInto(page, '#field-new-category', '  Movie  ');
+    await page.focus('#field-new-category');
+    await page.keyboard.press('Enter');
+    await page.waitForFunction(() => {
+      const data = JSON.parse(localStorage.getItem('figure-cap.v1') || '{}');
+      return data.settings?.categories?.includes('Movie');
+    });
+    const customChips = await page.evaluate(() => [...document.querySelectorAll('[data-type-chips] .chip')].map((el) => el.textContent.trim()));
+    assert.deepEqual(customChips, ['Not set', 'Transformers', '1/12', '1/6', 'Other', 'Model Kit', 'Movie', '+ New']);
+    assert.equal(await page.$eval('input[name="figureType"]:checked', (el) => el.value), 'Movie');
+    assert.equal(await page.$eval('[data-new-category]', (el) => el.hidden), true);
+    await page.reload({ waitUntil: 'networkidle0' });
+    await go(page, '#log', '#field-name');
+    await page.$eval('details.more', (el) => { el.open = true; });
+    await page.waitForFunction(() => [...document.querySelectorAll('[data-type-chips] .chip')].some((el) => el.textContent.trim() === 'Movie'));
+    await clickLabel(page, 'Movie');
+    await page.evaluate(() => {
+      const scroller = document.getElementById('main');
+      const target = document.querySelector('.type-field');
+      const origin = scroller.getBoundingClientRect().top;
+      scroller.scrollTop = Math.max(0, target.getBoundingClientRect().top - origin + scroller.scrollTop - 8);
+    });
+    await page.screenshot({ path: `${REPORTS}/types-log-add.png` });
+    await typeInto(page, '#field-name', 'Optimus');
+    await typeInto(page, '#field-price', '40');
+    await setDate(page, '#field-date', '2026-10-12');
+    await typeInto(page, '#field-brand', 'Good Smile');
+    await typeInto(page, '#field-series', 'Evangelion');
+    await press(page, '#log-form button[type="submit"]');
+    await page.waitForFunction(() => {
+      const data = JSON.parse(localStorage.getItem('figure-cap.v1') || '{}');
+      return data.purchases?.some((item) => item.name === 'Optimus' && item.figureType === 'Movie' && item.status === 'received');
+    });
+    await go(page, '#entries', '#chart');
+    const optimus = await page.evaluate(() => {
+      const article = [...document.querySelectorAll('article.block')].find((el) => el.querySelector('h3')?.textContent.trim() === 'Optimus');
+      return article?.querySelector('p.meta')?.textContent.trim() || '';
+    });
+    assert.equal(optimus, '12 Oct · Good Smile · Evangelion');
+    await press(page, '[data-action="open-filters"]');
+    await page.waitForSelector('dialog[open] [data-filter="type"][data-value="Movie"]');
+    await press(page, 'dialog[open] [data-action="close-dialog"]');
+    await go(page, '#settings', '#categories');
+    await page.waitForFunction(() => document.querySelector('#categories .category-list span')?.textContent === 'Movie');
+    await page.evaluate(() => {
+      const scroller = document.getElementById('main');
+      const target = document.getElementById('categories');
+      const origin = scroller.getBoundingClientRect().top;
+      scroller.scrollTop = Math.max(0, target.getBoundingClientRect().top - origin + scroller.scrollTop - 8);
+    });
+    await page.screenshot({ path: `${REPORTS}/types-settings-categories.png` });
+    await press(page, '[data-action="remove-category"]');
+    await page.waitForSelector('dialog[open]');
+    assert.match(await text(page, '#dialog-title'), /Remove Movie/);
+    await clickDialog(page, 'Remove');
+    await page.waitForFunction(() => {
+      const data = JSON.parse(localStorage.getItem('figure-cap.v1') || '{}');
+      const optimus = data.purchases?.find((item) => item.name === 'Optimus');
+      return data.settings?.categories?.length === 0 && optimus?.figureType === 'other';
+    });
+    assert.equal(await page.$('#categories .category-list'), null);
 
     await page.setViewport({ width: 320, height: 844, isMobile: true, hasTouch: true, deviceScaleFactor: 2 });
     await page.evaluate(() => {
