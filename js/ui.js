@@ -97,7 +97,6 @@ import {
 const ARROW = '<svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
 const SEARCH_ICON = '<svg class="search-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6.5" fill="none" stroke="currentColor" stroke-width="2"></circle><path d="M16 16.5 20.5 21" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"></path></svg>';
 const BACK = '<svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M15 5l-7 7 7 7" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
-const TONES = ['yellow', 'mint'];
 const MONTHS = [
   ['01', 'Jan'], ['02', 'Feb'], ['03', 'Mar'], ['04', 'Apr'],
   ['05', 'May'], ['06', 'Jun'], ['07', 'Jul'], ['08', 'Aug'],
@@ -319,7 +318,7 @@ function homeView(data) {
       ${month.usedUp ? `<p class="banner" id="cap-message">${esc(CAP_USED_MESSAGE)}</p>` : ''}
       <a class="btn btn-primary" id="log-link" href="#log">Log a purchase</a>
       ${latest ? purchaseCard(latest, 0, { arrow: true }) : `
-        <article class="block yellow">
+        <article class="block">
           <div class="card-head" data-edge>
             <div class="tags"><span class="tag">Collection</span></div>
             <a class="arrow" href="#log" aria-label="Log a purchase">${ARROW}</a>
@@ -328,7 +327,7 @@ function homeView(data) {
           <p class="meta" data-edge>The log is the collection. The bar above is what is left of this month's cap.</p>
         </article>`}
       ${balances.count ? `
-        <article class="block mint" id="balances-card">
+        <article class="block yellow" id="balances-card">
           <div class="card-head" data-edge>
             <div class="tags"><span class="tag">Balances coming</span></div>
             <a class="arrow" href="#entries/preorders" aria-label="Open open pre-orders">${ARROW}</a>
@@ -336,7 +335,7 @@ function homeView(data) {
           <p class="block-value" data-edge>${formatRM(balances.total)}</p>
           <p class="meta" data-edge>${balances.count === 1 ? '1 open pre-order' : `${balances.count} open pre-orders`}</p>
         </article>` : ''}
-      <article class="block ${balances.count ? 'yellow' : 'mint'}">
+      <article class="block yellow">
         <div class="card-head" data-edge>
           <div class="tags"><span class="tag">${esc(model.year)}</span></div>
           <a class="arrow" href="#entries/types" aria-label="Open spending by type">${ARROW}</a>
@@ -603,7 +602,7 @@ function entriesView(data, route = {}) {
       ${chart || '<p class="empty">No purchases yet.</p>'}
       ${chartToggle}
     </section>
-    <article class="block ${TONES[0] === 'yellow' ? 'mint' : 'yellow'}" id="category-totals">
+    <article class="block yellow" id="category-totals">
       <p class="kicker" data-edge>By type</p>
       <div class="stats" data-edge>
         ${(totals.length ? totals : [{ label: 'Total', count: 0, total: 0 }]).map((row, index) => `
@@ -688,10 +687,10 @@ function purchaseCard(purchase, index, options = {}) {
     ? `<a class="arrow" href="#edit/${encodeURIComponent(purchase.id)}" aria-label="Edit ${esc(purchase.name)}">${ARROW}</a>`
     : '';
   return `
-    <article class="block ${TONES[index % TONES.length]}" data-id="${esc(purchase.id)}">
+    <article class="block" data-id="${esc(purchase.id)}">
       <div class="card-head" data-edge>
         <div class="tags">
-          ${purchase.figureType ? `<span class="tag">${esc(figureTypeLabel(purchase.figureType))}</span>` : ''}
+          ${purchase.figureType ? `<span class="tag tag-type">${esc(figureTypeLabel(purchase.figureType))}</span>` : ''}
           ${purchase.condition ? `<span class="tag">${esc(purchase.condition)}</span>` : ''}
           ${purchase.preorderStatus ? `<span class="tag">${esc(preorderStatusLabel(purchase.preorderStatus))}</span>` : ''}
         </div>
@@ -790,7 +789,7 @@ function wishForm() {
 function wishList(model) {
   if (!model.items.length) return '<p class="empty">No figures here yet. Add one with a name and a price.</p>';
   return model.items.map((item, index) => `
-    <article class="block ${TONES[index % TONES.length]}" data-id="${esc(item.id)}">
+    <article class="block" data-id="${esc(item.id)}">
       <div class="card-head" data-edge>
         <div class="tags"><span class="tag">${esc(item.priorityLabel)}</span></div>
       </div>
@@ -912,7 +911,7 @@ function saleForm(item) {
 
 function saleCard(item, index) {
   return `
-    <article class="block ${TONES[index % TONES.length]}" data-id="${esc(item.id)}">
+    <article class="block" data-id="${esc(item.id)}">
       <div class="card-head" data-edge>
         <div class="tags"><span class="tag">${esc(item.condition)}</span><span class="tag">${esc(saleStatusLabel(item.status))}</span></div>
       </div>

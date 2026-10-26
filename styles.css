@@ -32,7 +32,7 @@
   --muted: #5c5c66;
   --line: rgba(20, 20, 20, 0.08);
   --yellow: #ffe45c;
-  --mint: #b6f5c8;
+  --pill: #e7e7eb;
   --banner: #ffc1b3;
   --shadow: 0 1px 2px rgba(20, 20, 20, 0.04), 0 10px 28px rgba(20, 20, 20, 0.06);
   --card-ink: #161616;
@@ -99,6 +99,7 @@ html[data-mode="dark"] {
   --card-btn-bg: rgba(255, 255, 255, 0.12);
   --card-btn-ink: #f4f4f5;
   --card-line: rgba(244, 244, 245, 0.28);
+  --pill: rgba(255, 255, 255, 0.14);
   --accent: #f4f4f5;
 }
 
@@ -444,10 +445,9 @@ form {
 }
 
 .block.yellow { background: var(--yellow); }
-.block.mint { background: var(--mint); }
 
-/* Pastel cards stay yellow and mint in dark mode, so ink inside them stays dark. */
-html[data-mode="dark"] .block {
+/* Summary cards stay bright yellow with dark text in dark mode. */
+html[data-mode="dark"] .block.yellow {
   --elev: #fff;
   --ink: #141414;
   --muted: #5c5c66;
@@ -1046,6 +1046,19 @@ input[type="file"] {
   color: var(--card-btn-ink);
   box-shadow: none;
   border: 1px solid var(--card-line);
+}
+
+.block:not(.yellow) .tag,
+.block:not(.yellow) .btn-ghost,
+.block:not(.yellow) .btn.danger,
+.block:not(.yellow) .arrow {
+  background: var(--pill);
+  color: var(--tag-ink);
+}
+
+.block:not(.yellow) .tag-type {
+  background: var(--yellow);
+  color: #161616;
 }
 
 button:disabled { opacity: 0.45; cursor: not-allowed; }
