@@ -262,6 +262,55 @@ async function setDate(page, selector, value) {
   }, value);
 }
 
+async function assertChipRemove(page, mode) {
+  const paint = await page.evaluate(() => {
+    const chipOf = (name) => document.querySelector(`[data-name="${name}"]`)?.closest('.chip');
+    const read = (name) => {
+      const chip = chipOf(name);
+      const button = chip?.querySelector('.chip-x');
+      if (!chip || !button) return null;
+      const cs = getComputedStyle(chip);
+      const bs = getComputedStyle(button);
+      const cr = chip.getBoundingClientRect();
+      const br = button.getBoundingClientRect();
+      const plain = document.querySelector('[data-type-chips] .chip:not(:has(.chip-x))');
+      return {
+        selected: chip.querySelector('input')?.checked === true,
+        chipH: Math.round(cr.height),
+        plainH: plain ? Math.round(plain.getBoundingClientRect().height) : 0,
+        xW: Math.round(br.width),
+        xH: Math.round(br.height),
+        inside: br.left >= cr.left - 1 && br.right <= cr.right + 1 && br.top >= cr.top - 1 && br.bottom <= cr.bottom + 1,
+        bg: bs.backgroundColor,
+        border: bs.borderTopWidth,
+        shadow: bs.boxShadow,
+        radius: bs.borderTopLeftRadius,
+        color: bs.color
+      };
+    };
+    return { movie: read('Movie'), anime: read('Anime') };
+  });
+  for (const name of ['movie', 'anime']) assert.ok(paint[name], name);
+  for (const row of [paint.movie, paint.anime]) {
+    assert.equal(row.chipH, row.plainH);
+    assert.ok(row.xW >= 32 && row.xH >= 32, `${row.xW}x${row.xH}`);
+    assert.equal(row.inside, true);
+    assert.equal(row.bg, 'rgba(0, 0, 0, 0)');
+    assert.equal(row.border, '0px');
+    assert.equal(row.shadow, 'none');
+    assert.equal(row.radius, '0px');
+  }
+  assert.equal(paint.movie.selected, true);
+  assert.equal(paint.anime.selected, false);
+  if (mode === 'light') {
+    assert.equal(paint.movie.color, 'rgb(255, 255, 255)');
+    assert.equal(paint.anime.color, 'rgb(92, 92, 102)');
+  } else {
+    assert.equal(paint.movie.color, 'rgb(20, 20, 20)');
+    assert.equal(paint.anime.color, 'rgb(183, 183, 192)');
+  }
+}
+
 async function press(page, selector) {
   await page.waitForSelector(selector);
   await page.$eval(selector, (el) => el.click());
@@ -409,7 +458,12 @@ async function assertTapTargets(page) {
     ];
     return nodes.flatMap((el) => {
       const rect = el.getBoundingClientRect();
-      if (rect.width < 2 || rect.height < 2 || rect.height >= 47) return [];
+      if (rect.width < 2 || rect.height < 2) return [];
+      if (el.classList.contains('chip-x')) {
+        if (rect.width >= 32 && rect.height >= 32) return [];
+        return [`${Math.round(rect.width)}x${Math.round(rect.height)} chip-x`];
+      }
+      if (rect.height >= 47) return [];
       return [`${Math.round(rect.height)}px ${el.tagName}.${el.className} ${(el.textContent || el.id || '').trim().slice(0, 40)}`];
     });
   });
@@ -1428,8 +1482,13 @@ async function main() {
     await page.waitForSelector('dialog[open] [data-filter="type"][data-value="Movie"]');
     await press(page, 'dialog[open] [data-action="close-dialog"]');
     await go(page, '#log', '#field-name');
+    await page.setViewport({ width: 390, height: 844, isMobile: true, hasTouch: true, deviceScaleFactor: 2 });
     await page.$eval('details.more', (el) => { el.open = true; });
-    await page.waitForSelector('[data-action="remove-category"][data-name="Movie"]');
+    await press(page, '[data-action="new-category"]');
+    await typeInto(page, '#field-new-category', 'Anime');
+    await press(page, '[data-action="add-category"]');
+    await page.waitForSelector('[data-name="Anime"]');
+    await clickLabel(page, 'Movie');
     const removable = await page.evaluate(() => [...document.querySelectorAll('[data-type-chips] .chip')].map((el) => ({
       label: (el.querySelector(':scope > span')?.textContent || el.textContent).trim(),
       remove: Boolean(el.querySelector('.chip-x'))
@@ -1442,15 +1501,39 @@ async function main() {
       { label: 'Other', remove: false },
       { label: 'Model Kit', remove: false },
       { label: 'Movie', remove: true },
+      { label: 'Anime', remove: true },
       { label: '+ New', remove: false }
     ]);
     await page.evaluate(() => {
       const scroller = document.getElementById('main');
-      const target = document.querySelector('.type-field');
+      const target = document.querySelector('[data-name="Movie"]')?.closest('.chip');
       const origin = scroller.getBoundingClientRect().top;
-      scroller.scrollTop = Math.max(0, target.getBoundingClientRect().top - origin + scroller.scrollTop - 8);
+      scroller.scrollTop = Math.max(0, target.getBoundingClientRect().top - origin + scroller.scrollTop - 72);
     });
-    await page.screenshot({ path: `${REPORTS}/log-type-chips.png` });
+    await assertChipRemove(page, 'light');
+    await page.screenshot({ path: `${REPORTS}/chip-remove-light.png` });
+    await page.evaluate(() => {
+      localStorage.setItem('figure-cap.theme', 'dark');
+      document.documentElement.dataset.mode = 'dark';
+      document.documentElement.dataset.theme = 'dark';
+    });
+    await assertChipRemove(page, 'dark');
+    await assertContrast(page);
+    await page.screenshot({ path: `${REPORTS}/chip-remove-dark.png` });
+    await page.evaluate(() => {
+      localStorage.setItem('figure-cap.theme', 'light');
+      document.documentElement.dataset.mode = 'light';
+      document.documentElement.dataset.theme = 'light';
+    });
+    await press(page, '[data-action="remove-category"][data-name="Anime"]');
+    await page.waitForSelector('dialog[open]');
+    await clickDialog(page, 'Remove');
+    await page.waitForFunction(() => {
+      const data = JSON.parse(localStorage.getItem('figure-cap.v1') || '{}');
+      return data.settings?.categories?.length === 1 && data.settings.categories[0] === 'Movie';
+    });
+    await go(page, '#log', '#field-name');
+    await page.$eval('details.more', (el) => { el.open = true; });
     await press(page, '[data-action="remove-category"][data-name="Movie"]');
     await page.waitForSelector('dialog[open]');
     assert.match(await text(page, '#dialog-title'), /Remove Movie/);
