@@ -690,7 +690,7 @@ function purchaseCard(purchase, index, options = {}) {
     <article class="block" data-id="${esc(purchase.id)}">
       <div class="card-head" data-edge>
         <div class="tags">
-          ${purchase.figureType ? `<span class="tag tag-type">${esc(figureTypeLabel(purchase.figureType))}</span>` : ''}
+          ${purchase.figureType ? `<span class="tag">${esc(figureTypeLabel(purchase.figureType))}</span>` : ''}
           ${purchase.condition ? `<span class="tag">${esc(purchase.condition)}</span>` : ''}
           ${purchase.preorderStatus ? `<span class="tag">${esc(preorderStatusLabel(purchase.preorderStatus))}</span>` : ''}
         </div>

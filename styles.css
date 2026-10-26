@@ -536,10 +536,14 @@ html[data-mode="dark"] .block.yellow {
   max-width: 100%;
   min-height: 22px;
   padding: 0 8px;
-  border: 0;
+  border: 1px solid transparent;
   border-radius: 99px;
-  background: var(--tag-bg);
-  color: var(--tag-ink);
+  background: var(--yellow);
+  color: #161616;
+}
+
+.block.yellow .tag {
+  border-color: rgba(22, 22, 22, 0.22);
 }
 
 .banner, .form-error, .category-error, .cap-note {
@@ -1048,17 +1052,11 @@ input[type="file"] {
   border: 1px solid var(--card-line);
 }
 
-.block:not(.yellow) .tag,
 .block:not(.yellow) .btn-ghost,
 .block:not(.yellow) .btn.danger,
 .block:not(.yellow) .arrow {
   background: var(--pill);
   color: var(--tag-ink);
-}
-
-.block:not(.yellow) .tag-type {
-  background: var(--yellow);
-  color: #161616;
 }
 
 button:disabled { opacity: 0.45; cursor: not-allowed; }

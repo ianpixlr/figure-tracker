@@ -1611,7 +1611,7 @@ async function main() {
             const textOf = (el) => el?.querySelector('h3, .block-value, .kicker, .spec-label');
             const yellowText = textOf(yellow);
             const listText = textOf(list);
-            const typeTag = list?.querySelector('.tag-type');
+            const typeTag = list?.querySelector('.tag');
             return {
               yellowVar: root.getPropertyValue('--yellow').trim(),
               mintVar: root.getPropertyValue('--mint').trim(),
@@ -2090,7 +2090,7 @@ async function main() {
     assert.equal(paid.tags[0].text, '1/6');
     assert.equal(paid.tags[0].bg, 'rgb(255, 228, 92)');
     assert.equal(paid.tags[0].color, 'rgb(22, 22, 22)');
-    assert.equal(paid.tags.find((tag) => tag.text === 'Deposit paid').bg, 'rgb(231, 231, 235)');
+    assert.equal(paid.tags.find((tag) => tag.text === 'Deposit paid').bg, 'rgb(255, 228, 92)');
     assert.equal(paid.tags.find((tag) => tag.text === 'Deposit paid').color, 'rgb(22, 22, 22)');
     assert.equal(paid.editBg, 'rgb(231, 231, 235)');
     assert.equal(paid.editColor, 'rgb(22, 22, 22)');
@@ -2104,6 +2104,25 @@ async function main() {
         document.documentElement.dataset.theme = next;
       }, mode);
       await go(page, '#home', '#balances-card');
+      if (mode === 'light') {
+        const summaryTags = await page.evaluate(() => [...document.querySelectorAll('article.block.yellow .tag')].map((el) => {
+          const style = getComputedStyle(el);
+          return {
+            text: el.textContent.trim(),
+            bg: style.backgroundColor,
+            color: style.color,
+            border: style.borderTopWidth,
+            borderColor: style.borderTopColor
+          };
+        }));
+        assert.ok(summaryTags.length >= 2, JSON.stringify(summaryTags));
+        for (const tag of summaryTags) {
+          assert.equal(tag.bg, 'rgb(255, 228, 92)', tag.text);
+          assert.equal(tag.color, 'rgb(22, 22, 22)', tag.text);
+          assert.equal(tag.border, '1px', tag.text);
+          assert.notEqual(tag.borderColor, 'rgba(0, 0, 0, 0)', tag.text);
+        }
+      }
       await page.evaluate(() => {
         const scroller = document.getElementById('main');
         const target = document.querySelector('article.block:not(.yellow)');
