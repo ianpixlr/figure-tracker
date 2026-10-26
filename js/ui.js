@@ -832,19 +832,12 @@ function saleForm(item) {
       <p class="form-error" role="alert" hidden></p>
       <button class="btn btn-primary" type="submit">${editing ? 'Save listing' : 'Add listing'}</button>
     </form>
-    ${editing ? `<div class="panel">${saleResearch(item)}</div>` : ''}
+    ${editing ? `<div class="panel">${saleEditResearch(item)}</div>` : ''}
     ${editing ? `<button class="btn danger" type="button" data-action="delete-sale" data-id="${esc(item.id)}">Delete listing</button>` : ''}
   `;
 }
 
 function saleCard(item, index) {
-  const foreign = foreignNote(item);
-  const soldForeign = item.status === 'sold' ? foreignNote({
-    currency: item.soldCurrency,
-    originalAmount: item.soldOriginalAmount,
-    fxOverridden: item.soldFxOverridden,
-    fxCached: item.soldFxCached
-  }) : '';
   return `
     <article class="block ${TONES[index % TONES.length]}" data-id="${esc(item.id)}">
       <div class="card-head" data-edge>
@@ -853,11 +846,8 @@ function saleCard(item, index) {
       </div>
       <h3 data-edge>${esc(item.name)}</h3>
       <p class="block-value" data-edge>${formatRM(item.price)}</p>
-      <p class="meta" data-edge>${[item.brand, item.series].filter(Boolean).map(esc).join(' · ') || 'Asking price'}</p>
-      ${foreign ? `<p class="meta" data-edge>${esc(foreign)}</p>` : ''}
-      ${item.status === 'sold' ? `<p class="meta" data-edge>Sold ${item.soldPrice != null ? formatRM(item.soldPrice) : ''}${item.soldDate ? ` · ${esc(formatDay(item.soldDate))}` : ''}${soldForeign ? ` · ${esc(soldForeign)}` : ''}</p>` : ''}
-      ${item.notes ? `<p class="note" data-edge>${esc(item.notes)}</p>` : ''}
-      ${saleResearch(item)}
+      ${searchPills(item)}
+      <div class="check" data-check-for="${esc(item.id)}">${priceCheckLine(item, cachedPriceChecks())}</div>
       <div class="btn-row">
         <a class="btn btn-ghost" href="#edit-sale/${encodeURIComponent(item.id)}">Edit</a>
         <button class="btn btn-ghost" type="button" data-action="delete-sale" data-id="${esc(item.id)}">Delete</button>
@@ -875,10 +865,10 @@ function searchPills(item) {
   `;
 }
 
-function saleResearch(item) {
+function saleEditResearch(item) {
   return `
     ${searchPills(item)}
-    <div class="check" data-check-for="${esc(item.id)}">${priceCheckInner(item, cachedPriceChecks())}</div>
+    <div class="check" data-check-for="${esc(item.id)}">${priceCheckLine(item, cachedPriceChecks())}</div>
     ${priceCheckForm(item)}
   `;
 }
@@ -897,37 +887,50 @@ function priceCheckForm(item) {
           <input name="high" inputmode="decimal" autocomplete="off" placeholder="0.00" aria-label="High price">
         </label>
       </div>
-      <label class="field" data-edge>RRP
-        <input name="rrp" maxlength="80" autocomplete="off" placeholder="Optional" aria-label="RRP">
-      </label>
-      <label class="field" data-edge>Source
-        <input name="source" maxlength="80" autocomplete="off" value="Carousell" aria-label="Source">
-      </label>
+      <div class="check-pair" data-edge>
+        <label class="field">RRP
+          <input name="rrp" maxlength="80" autocomplete="off" placeholder="Optional" aria-label="RRP">
+        </label>
+        <label class="field">Source
+          <input name="source" maxlength="80" autocomplete="off" value="Carousell" aria-label="Source">
+        </label>
+      </div>
       <p class="form-error" role="alert" hidden></p>
       <button class="btn btn-primary" type="submit">Save price check</button>
     </form>
   `;
 }
 
-function priceCheckInner(item, checks) {
+function ringgitCompact(value) {
+  const amount = priceCheckAmount(value);
+  if (amount == null) return '';
+  const text = formatRM(amount);
+  return text.endsWith('.00') ? text.slice(0, -3) : text;
+}
+
+function checkDay(value) {
+  const match = String(value || '').match(/^(\d{4}-\d{2}-\d{2})/);
+  if (!match || !isYMD(match[1])) return '';
+  return formatDay(match[1]);
+}
+
+function priceCheckLine(item, checks) {
   const check = latestPriceCheck(item, checks);
-  if (!check) return '<p class="spec-label" data-edge>Price check</p><p class="check-empty" data-edge>No price check yet.</p>';
-  const rrp = String(check.rrp || '').trim();
-  const rrpSource = String(check.rrp_source || '').trim();
-  const market = String(check.sources || '').trim();
-  const listings = check.listing_count === '' || check.listing_count == null ? '' : String(check.listing_count);
+  if (!check) return '<p class="check-empty" data-edge>No price check yet.</p>';
+  const prices = [check.low_rm, check.typical_rm, check.high_rm].map((value) => ringgitCompact(value).replace(/^RM\s/, '')).filter(Boolean);
+  const rrpAmount = ringgitCompact(check.rrp);
+  const rrpRaw = String(check.rrp || '').trim();
+  const rrp = rrpAmount || rrpRaw;
+  const parts = [];
+  if (prices.length) parts.push(`Market RM ${prices.join(' / ')}`);
+  if (rrp) parts.push(`RRP ${rrpAmount ? rrpAmount : rrp}`);
+  const source = String(check.sources || '').trim() || String(check.rrp_source || '').trim();
+  const when = checkDay(check.checked_at);
+  const detail = [source, when].filter(Boolean).join(' · ');
+  if (!parts.length && !detail) return '<p class="check-empty" data-edge>No price check yet.</p>';
   return `
-    <p class="spec-label" data-edge>Price check</p>
-    <div class="spec-grid" data-edge>
-      <div><p class="spec-label">Low</p><p class="spec-value">${rmOrDash(check.low_rm)}</p></div>
-      <div><p class="spec-label">Typical</p><p class="spec-value">${rmOrDash(check.typical_rm)}</p></div>
-      <div><p class="spec-label">High</p><p class="spec-value">${rmOrDash(check.high_rm)}</p></div>
-      ${listings ? `<div><p class="spec-label">Listings</p><p class="spec-value">${esc(listings)}</p></div>` : ''}
-    </div>
-    ${rrp ? `<p class="meta" data-edge>RRP ${esc(rrp)}${rrpSource && rrpSource !== market ? ` · ${esc(rrpSource)}` : ''}</p>` : ''}
-    ${market ? `<p class="meta" data-edge>${esc(market)}</p>` : ''}
-    ${linkList(check.sample_links)}
-    ${check.checked_at ? `<p class="meta" data-edge>Checked ${esc(check.checked_at)}</p>` : ''}
+    ${parts.length ? `<p class="check-line" data-edge>${esc(parts.join(' · '))}</p>` : ''}
+    ${detail ? `<p class="check-sub" data-edge>${esc(detail)}</p>` : ''}
   `;
 }
 
@@ -1106,18 +1109,6 @@ function amountValue(value) {
   const number = Number(value);
   if (!Number.isFinite(number)) return '';
   return Number.isInteger(number) ? String(number) : number.toFixed(2);
-}
-
-function rmOrDash(value) {
-  const amount = priceCheckAmount(value);
-  return amount == null ? '—' : formatRM(amount);
-}
-
-function linkList(value) {
-  const parts = String(value || '').split(/[\s,]+/).filter(Boolean);
-  const links = parts.filter((part) => /^https?:\/\//i.test(part));
-  if (!links.length) return value ? `<p class="meta">${esc(value)}</p>` : '';
-  return `<ul class="links">${links.map((href) => `<li><a href="${esc(href)}" target="_blank" rel="noopener noreferrer">${esc(href)}</a></li>`).join('')}</ul>`;
 }
 
 async function onSubmit(event) {
@@ -2107,7 +2098,7 @@ function fillCheckSlots() {
   const checks = cachedPriceChecks();
   document.querySelectorAll('[data-check-for]').forEach((slot) => {
     const item = loaded.data.forSale.find((sale) => sale.id === slot.dataset.checkFor);
-    if (item) slot.innerHTML = priceCheckInner(item, checks);
+    if (item) slot.innerHTML = priceCheckLine(item, checks);
   });
 }
 

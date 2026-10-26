@@ -246,6 +246,29 @@ async function assertNoOverflow(page) {
   assert.ok(extra <= 1, `horizontal overflow ${extra}px`);
 }
 
+async function assertClearsNav(page) {
+  const covered = await page.evaluate(() => {
+    window.scrollTo(0, document.documentElement.scrollHeight);
+    const nav = document.querySelector('.nav');
+    if (!nav) return ['missing nav'];
+    const limit = nav.getBoundingClientRect().top;
+    const problems = [];
+    for (const el of document.querySelectorAll('main a, main button, main input, main select, main textarea, main p, main h2, main h3, main label')) {
+      if (el.closest('[hidden]')) continue;
+      const style = getComputedStyle(el);
+      if (style.display === 'none' || style.visibility === 'hidden') continue;
+      const rect = el.getBoundingClientRect();
+      if (rect.width < 2 || rect.height < 2 || rect.top >= window.innerHeight) continue;
+      if (rect.bottom > limit + 1) {
+        problems.push(`${el.tagName}.${String(el.className).slice(0, 30)} ${(el.textContent || el.getAttribute('aria-label') || '').trim().slice(0, 28)}`);
+      }
+      if (problems.length > 6) break;
+    }
+    return problems;
+  });
+  assert.deepEqual(covered, []);
+}
+
 async function assertTapTargets(page) {
   const small = await page.evaluate(() => {
     const nodes = [
@@ -499,32 +522,44 @@ async function main() {
     await page.waitForFunction(() => document.body.innerText.includes('No price check yet.'));
     assert.match(await bodyText(page), /MISB/);
     assert.match(await bodyText(page), /RM 70\.00/);
+    assert.equal(await page.$('article [data-check-form]'), null);
     const caro = await page.$eval('article a[href*="carousell.com.my"]', (el) => el.getAttribute('href'));
     const rrp = await page.$eval('article a[href*="google.com/search"]', (el) => el.getAttribute('href'));
     assert.equal(caro, `https://www.carousell.com.my/search/${encodeURIComponent('Mari MISB')}`);
     assert.equal(rrp, `https://www.google.com/search?q=${encodeURIComponent('Mari RRP')}`);
-    assert.equal(await page.$eval('article input[name="source"]', (el) => el.value), 'Carousell');
-    await typeInto(page, 'article input[name="low"]', '40');
-    await typeInto(page, 'article input[name="typical"]', '55');
-    await typeInto(page, 'article input[name="high"]', '80');
-    await typeInto(page, 'article input[name="rrp"]', 'RM 90');
-    await press(page, 'article [data-check-form] button[type="submit"]');
-    await page.waitForFunction(() => {
-      const text = document.body.innerText;
-      return text.includes('RM 40.00') && text.includes('RM 55.00') && text.includes('RM 80.00') && text.includes('Carousell');
-    });
+    await press(page, 'a[href^="#edit-sale/"]');
+    await page.waitForSelector('[data-check-form] input[name="source"]');
+    assert.equal(await page.$eval('[data-check-form] input[name="source"]', (el) => el.value), 'Carousell');
+    await typeInto(page, '[data-check-form] input[name="low"]', '40');
+    await typeInto(page, '[data-check-form] input[name="typical"]', '55');
+    await typeInto(page, '[data-check-form] input[name="high"]', '80');
+    await typeInto(page, '[data-check-form] input[name="rrp"]', 'RM 90');
+    await press(page, '[data-check-form] button[type="submit"]');
+    await page.waitForFunction(() => document.body.innerText.includes('Market RM 40 / 55 / 80 · RRP RM 90'));
+    await go(page, '#sell', 'article.block');
+    const cardText = await page.$eval('article.block', (el) => el.innerText);
+    assert.match(cardText, /Market RM 40 \/ 55 \/ 80 · RRP RM 90/);
+    assert.match(cardText, /Carousell · \d{1,2} \w{3}/);
+    assert.equal(/\d{2}:\d{2}/.test(cardText), false);
+    assert.equal(await page.$('article [data-check-form]'), null);
     await assertTypeScale(page);
     await assertAlignment(page);
+    await assertClearsNav(page);
     await shot(page, 'sell');
     await shot(page, 'sell-check', 'article.block');
     await assertNoOverflow(page);
     await press(page, 'a[href^="#edit-sale/"]');
     await page.waitForSelector('#sale-form');
-    await page.waitForFunction(() => document.body.innerText.includes('RM 40.00'));
+    await page.waitForFunction(() => document.body.innerText.includes('Market RM 40 / 55 / 80 · RRP RM 90'));
     await assertTypeScale(page);
     await assertAlignment(page);
+    await page.setViewport({ width: 360, height: 844, isMobile: true, hasTouch: true, deviceScaleFactor: 2 });
+    await assertTextFits(page);
+    await assertNoOverflow(page);
+    await page.setViewport({ width: 390, height: 844, isMobile: true, hasTouch: true, deviceScaleFactor: 2 });
+    await assertClearsNav(page);
     await shot(page, 'sell-edit');
-    await shot(page, 'sell-check-edit', 'bottom:.check-form button[type="submit"]');
+    await shot(page, 'sell-check-edit', '.check');
 
     await go(page, '#settings', '#field-cap');
     await assertTypeScale(page);
