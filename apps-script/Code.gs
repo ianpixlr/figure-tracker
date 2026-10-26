@@ -255,17 +255,35 @@ function deleteById(sheet, headers, id) {
   if (line) sheet.deleteRow(line);
 }
 
+function sheetHasIds(sheet, idIndex) {
+  var last = sheet.getLastRow();
+  if (idIndex === -1 || last < 2) return false;
+  var ids = sheet.getRange(2, idIndex + 1, last - 1, 1).getValues();
+  for (var i = 0; i < ids.length; i++) {
+    if (String(ids[i][0] || '')) return true;
+  }
+  return false;
+}
+
 function syncTable(ss, name, rows) {
   var repaired = repairSheet(ss, name, SHEETS[name]);
-  var keep = {};
+  var incoming = [];
   (rows || []).forEach(function (row) {
-    if (!row || !row.id) return;
+    if (row && row.id) incoming.push(row);
+  });
+  var idIndex = repaired.headers.indexOf('id');
+  if (idIndex === -1) throw new Error('missing id column');
+  // Safari and the home-screen app do not share storage. A phone whose table
+  // is empty must not erase rows the other one already stored. One-row deletes
+  // still arrive as action "delete". Redeploy the web app for this guard.
+  if (!incoming.length && sheetHasIds(repaired.sheet, idIndex)) return;
+  var keep = {};
+  incoming.forEach(function (row) {
     keep[String(row.id)] = true;
     upsertRow(repaired.sheet, repaired.headers, row);
   });
-  var idIndex = repaired.headers.indexOf('id');
   var last = repaired.sheet.getLastRow();
-  if (idIndex === -1 || last < 2) return;
+  if (last < 2) return;
   var ids = repaired.sheet.getRange(2, idIndex + 1, last - 1, 1).getValues();
   for (var i = ids.length - 1; i >= 0; i--) {
     var id = String(ids[i][0] || '');
