@@ -266,6 +266,117 @@ test('posts are text/plain and a full sync does not send price checks', async ()
   assert.equal(syncStatusLabel(), 'Synced');
 });
 
+test('a full sync keeps a queued wishlist add that this device has not stored', async () => {
+  resetSyncForTests();
+  const calls = [];
+  const fetchImpl = async (url, init = {}) => {
+    calls.push({ url, init });
+    if (init.method === 'GET') return { ok: true, text: async () => JSON.stringify({ ok: true, priceChecks: [] }) };
+    return { ok: true, text: async () => JSON.stringify({ ok: true }) };
+  };
+  const wish = wishRow({
+    id: 'wish-1',
+    name: 'Grail',
+    originalAmount: 80,
+    currency: 'MYR',
+    fxRate: 1,
+    fxDate: '2026-10-26',
+    price: 80,
+    fxOverridden: false,
+    fxCached: false,
+    priority: 'must',
+    addedAt: '2026-10-26T03:00:00.000Z',
+    updatedAt: '2026-10-26T03:00:00.000Z'
+  });
+  assert.deepEqual(Object.keys(wish), WISHLIST_COLUMNS);
+  assert.deepEqual(Object.keys(wish), headers('Wishlist'));
+  assert.equal(wish.id, 'wish-1');
+  assert.equal(wish.priority, 'Must have');
+  assert.equal(wish.amount_rm, 80);
+  enqueueUpsert('Wishlist', wish);
+  const data = {
+    settings: { syncUrl: 'https://example.com/exec' },
+    purchases: [samplePurchase()],
+    wishlist: [],
+    forSale: [{ id: 'sale-1', name: 'Mindwipe', brand: 'Hasbro', series: 'Titans Return', condition: 'Loose', originalAmount: 60, currency: 'MYR', fxRate: 1, fxDate: '2026-10-26', price: 60, fxOverridden: false, fxCached: false, notes: '', status: 'listed', createdAt: '2026-10-26T03:00:00.000Z', updatedAt: '2026-10-26T03:00:00.000Z' }]
+  };
+  const result = await syncAllNow(data, { fetchImpl, online: true });
+  assert.equal(result.ok, true);
+  const posted = JSON.parse(calls.find((call) => call.init?.method === 'POST').init.body);
+  assert.equal(posted.action, 'syncAll');
+  assert.equal(posted.wishlist.length, 1);
+  assert.equal(posted.wishlist[0].id, 'wish-1');
+  assert.equal(posted.wishlist[0].name, 'Grail');
+  assert.equal(posted.purchases.length, 1);
+  assert.equal(posted.forSale.length, 1);
+  assert.equal(readQueue().length, 0);
+  assert.match(script, /if \(!incoming\.length && sheetHasIds\(repaired\.sheet, idIndex\)\) return;/);
+});
+
+test('a full sync does not treat an empty wishlist as deleting the last wish', async () => {
+  resetSyncForTests();
+  const calls = [];
+  const fetchImpl = async (url, init = {}) => {
+    calls.push({ url, init });
+    if (init.method === 'GET') return { ok: true, text: async () => JSON.stringify({ ok: true, priceChecks: [] }) };
+    return { ok: true, text: async () => JSON.stringify({ ok: true }) };
+  };
+  enqueueDelete('Wishlist', 'wish-1');
+  const data = {
+    settings: { syncUrl: 'https://example.com/exec' },
+    purchases: [],
+    wishlist: [],
+    forSale: []
+  };
+  const result = await syncAllNow(data, { fetchImpl, online: true });
+  assert.equal(result.ok, true);
+  const bodies = calls.filter((call) => call.init?.method === 'POST').map((call) => JSON.parse(call.init.body));
+  assert.equal(bodies[0].action, 'syncAll');
+  assert.deepEqual(bodies[0].wishlist, []);
+  assert.equal(bodies[1].action, 'delete');
+  assert.equal(bodies[1].sheet, 'Wishlist');
+  assert.equal(bodies[1].id, 'wish-1');
+  assert.equal(readQueue().length, 0);
+});
+
+test('adding a wish posts a Wishlist upsert', async () => {
+  resetSyncForTests();
+  const calls = [];
+  const fetchImpl = async (url, init = {}) => {
+    calls.push({ url, init });
+    if (init.method === 'GET') return { ok: true, text: async () => JSON.stringify({ ok: true, priceChecks: [] }) };
+    return { ok: true, text: async () => JSON.stringify({ ok: true }) };
+  };
+  const wish = wishRow({
+    id: 'wish-2',
+    name: 'Seeker',
+    originalAmount: 40,
+    currency: 'MYR',
+    fxRate: 1,
+    fxDate: '2026-10-26',
+    price: 40,
+    fxOverridden: false,
+    fxCached: false,
+    priority: 'really',
+    addedAt: '2026-10-26T04:00:00.000Z',
+    updatedAt: '2026-10-26T04:00:00.000Z'
+  });
+  enqueueUpsert('Wishlist', wish);
+  const data = { settings: { syncUrl: 'https://example.com/exec' }, purchases: [], wishlist: [ {
+    id: 'wish-2', name: 'Seeker', originalAmount: 40, currency: 'MYR', fxRate: 1, fxDate: '2026-10-26', price: 40, fxOverridden: false, fxCached: false, priority: 'really', addedAt: '2026-10-26T04:00:00.000Z', updatedAt: '2026-10-26T04:00:00.000Z'
+  } ], forSale: [] };
+  const flushed = await flushQueue(() => data, { fetchImpl, online: true });
+  assert.equal(flushed.ok, true);
+  const posted = JSON.parse(calls.find((call) => call.init?.method === 'POST').init.body);
+  assert.equal(posted.action, 'upsert');
+  assert.equal(posted.sheet, 'Wishlist');
+  assert.equal(posted.row.id, 'wish-2');
+  assert.equal(posted.row.name, 'Seeker');
+  assert.equal(posted.row.priority, 'Really want');
+  assert.equal(posted.row.amount_rm, 40);
+  assert.equal(readQueue().length, 0);
+});
+
 test('a manual price check appends to Price Checks and stays on the phone', async () => {
   resetSyncForTests();
   const calls = [];

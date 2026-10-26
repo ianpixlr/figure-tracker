@@ -315,13 +315,51 @@ export function saleRow(item) {
   });
 }
 
-export function syncAllBody(data) {
+function replaceRow(rows, row) {
+  const index = rows.findIndex((item) => item.id === row.id);
+  if (index === -1) rows.push(row);
+  else rows[index] = row;
+}
+
+// Queued upserts are part of this phone's sync even when the loaded table does
+// not have them yet. Queued deletes remove those ids from a non-empty table.
+export function syncTables(data, queue = []) {
+  const tables = {
+    Purchases: (data.purchases || []).map(purchaseRow),
+    Wishlist: (data.wishlist || []).map(wishRow),
+    'For Sale': (data.forSale || []).map(saleRow)
+  };
+  for (const op of queue) {
+    const rows = tables[op.sheet];
+    if (!rows || (op.op !== 'upsert' && op.op !== 'delete')) continue;
+    if (op.op === 'delete') {
+      const index = rows.findIndex((row) => row.id === op.id);
+      if (index !== -1) rows.splice(index, 1);
+      continue;
+    }
+    if (op.row && op.row.id) replaceRow(rows, op.row);
+  }
+  return tables;
+}
+
+export function syncAllBody(data, queue = []) {
+  const tables = syncTables(data, queue);
   return {
     action: 'syncAll',
-    purchases: (data.purchases || []).map(purchaseRow),
-    wishlist: (data.wishlist || []).map(wishRow),
-    forSale: (data.forSale || []).map(saleRow)
+    purchases: tables.Purchases,
+    wishlist: tables.Wishlist,
+    forSale: tables['For Sale']
   };
+}
+
+// An empty table is not authority to erase the sheet. The matching guard in
+// apps-script/Code.gs is what stops a device that has no rows for a tab.
+export function fullSyncCovers(op, tables) {
+  if (op.op !== 'upsert' && op.op !== 'delete') return false;
+  const rows = tables[op.sheet];
+  if (!rows || !rows.length) return false;
+  const present = rows.some((row) => row.id === op.id);
+  return op.op === 'upsert' ? present : !present;
 }
 
 function withToken(url) {
@@ -474,13 +512,15 @@ export async function syncAllNow(data, options = {}) {
     setPhase('offline');
     return { ok: false, reason: 'offline' };
   }
-  const before = new Set(readQueue().map(opKey));
+  const pending = readQueue();
+  const tables = syncTables(data, pending);
+  const covered = new Set(pending.filter((op) => fullSyncCovers(op, tables)).map(opKey));
   setPhase('syncing');
   try {
-    const result = await postJson(url, syncAllBody(data), options.fetchImpl);
+    const result = await postJson(url, syncAllBody(data, pending), options.fetchImpl);
     if (!result || result.ok === false) throw new Error(result?.error || 'sync failed');
     clearFull();
-    writeQueue(readQueue().filter((op) => op.op === 'appendCheck' || !before.has(opKey(op))));
+    writeQueue(readQueue().filter((op) => !covered.has(opKey(op))));
     const posted = await postQueued(url, options);
     if (!posted.ok) return posted;
     try {

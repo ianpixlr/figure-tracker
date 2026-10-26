@@ -56,7 +56,7 @@ A GitHub Pages site cannot sign in to Sheets, so `apps-script/Code.gs` is the sm
 
 The script repairs a frozen bold header row on each tab, formats ringgit columns, and formats dates. The app posts with `Content-Type: text/plain` so the browser does not send a preflight. Random visitors cannot write without the token. A manual price check posts `action: "appendCheck"`. That action is new, so paste this file and deploy a new version before those rows can land on the sheet. Until then the check still stays on the phone.
 
-The phone keeps the local copy. Each add, edit, and delete is queued and sent when you are online. **Sync all now** pushes every purchase, wishlist item, and listing. Price Checks are read-only: fill that tab yourself and the Sell cards pick up the latest row for each figure.
+The phone keeps the local copy. Each add, edit, and delete is queued and sent when you are online. **Sync all now** pushes every purchase, wishlist item, and listing on this device. An empty tab on this device does not erase rows already on the sheet (Safari and the home-screen app keep separate copies). Removing one figure still deletes that row. Price Checks are read-only: fill that tab yourself and the Sell cards pick up the latest row for each figure. The empty-tab guard is in `apps-script/Code.gs`, so paste this file and deploy a new web app version before it applies.
 
 ### Column headers
 
