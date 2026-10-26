@@ -159,6 +159,20 @@ async function main() {
     const realToday = await page.evaluate(() => window.__figureCap.today());
     assert.equal(await text(page, '#today-line'), klLong(new Date()));
     assert.equal(await text(page, '#left-value'), '400.00');
+    const headingFocus = await page.evaluate(() => {
+      const heading = document.getElementById('month-title');
+      const style = getComputedStyle(heading);
+      return {
+        focused: document.activeElement === heading,
+        tabIndex: heading.tabIndex,
+        outline: style.outlineStyle,
+        shadow: style.boxShadow
+      };
+    });
+    assert.equal(headingFocus.focused, false);
+    assert.equal(headingFocus.tabIndex, -1);
+    assert.equal(headingFocus.outline, 'none');
+    assert.equal(headingFocus.shadow, 'none');
     assert.equal(await text(page, '#cap-line'), 'left of RM 400.00');
     assert.equal(await text(page, '#spent-value'), 'RM 0.00');
     assert.equal(await text(page, '#ytd-value'), 'RM 0.00');

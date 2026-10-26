@@ -145,14 +145,7 @@ export function render() {
   document.querySelectorAll('[data-money]').forEach((block) => updateFxHint(block));
   if (route.name === 'sell' || route.name === 'edit-sale') queueCheckRefresh();
 
-  if (routeChanged) {
-    const heading = main.querySelector('h2');
-    if (heading) {
-      heading.tabIndex = -1;
-      heading.focus({ preventScroll: true });
-    }
-    window.scrollTo(0, 0);
-  }
+  if (routeChanged) window.scrollTo(0, 0);
 }
 
 function parseRoute() {
