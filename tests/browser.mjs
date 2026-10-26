@@ -13,6 +13,14 @@ async function text(page, selector) {
   return page.$eval(selector, (el) => el.textContent.trim());
 }
 
+async function blockTones(page) {
+  return page.$$eval('#main article.block', (els) => els.map((el) => {
+    if (el.classList.contains('yellow')) return 'yellow';
+    if (el.classList.contains('mint')) return 'mint';
+    return 'other';
+  }));
+}
+
 async function bodyText(page) {
   return page.evaluate(() => document.body.innerText);
 }
@@ -655,6 +663,8 @@ async function main() {
     assert.equal(homeMain.includes('MONDAY'), false);
     assert.equal(await page.$('#main .block.sky'), null);
     assert.equal(await page.$('#main .block.coral'), null);
+    assert.equal(await page.$('#main .block.lilac'), null);
+    assert.deepEqual(await blockTones(page), ['yellow', 'mint']);
     assert.equal(homeText.includes('One in, one out'), false);
     assert.equal(homeText.includes('Rules'), false);
     assert.equal(homeText.includes('48-hour'), false);
@@ -1067,7 +1077,9 @@ async function main() {
     });
     await page.waitForFunction(() => document.getElementById('cap-line')?.textContent === 'cap RM 450 · RM 50 rolled over');
     assert.equal(await page.$('#main .block.coral'), null);
+    assert.equal(await page.$('#main .block.lilac'), null);
     assert.equal(await page.$('#balances-card'), null);
+    assert.deepEqual(await blockTones(page), ['yellow', 'mint']);
     assert.equal(await page.$('#today-line'), null);
     assert.match(await page.$eval('#cap-line', (el) => el.innerHTML), /<span class="amt">cap RM 450<\/span> · <span class="amt">RM 50<\/span> rolled over/);
     await page.evaluate(() => {
@@ -1231,6 +1243,36 @@ async function main() {
         await assertTypeScale(page);
         await assertNoOverflow(page);
         await assertSingleDividers(page);
+        if (mode === 'dark' && (hash === '#entries' || hash === '#sell' || hash === '#home')) {
+          const paint = await page.evaluate(() => {
+            const root = getComputedStyle(document.documentElement);
+            const yellow = document.querySelector('article.block.yellow');
+            const mint = document.querySelector('article.block.mint');
+            const tag = yellow?.querySelector('.tag');
+            const ghost = yellow?.querySelector('.btn-ghost');
+            const arrow = yellow?.querySelector('.arrow');
+            return {
+              yellowVar: root.getPropertyValue('--yellow').trim(),
+              mintVar: root.getPropertyValue('--mint').trim(),
+              lilacVar: root.getPropertyValue('--lilac').trim(),
+              yellow: yellow ? getComputedStyle(yellow).backgroundColor : '',
+              mint: mint ? getComputedStyle(mint).backgroundColor : '',
+              ink: yellow?.querySelector('h3') ? getComputedStyle(yellow.querySelector('h3')).color : '',
+              tag: tag ? getComputedStyle(tag).color : '',
+              ghost: ghost ? getComputedStyle(ghost).color : '',
+              arrow: arrow ? getComputedStyle(arrow).color : ''
+            };
+          });
+          assert.equal(paint.yellowVar, '#ffe45c');
+          assert.equal(paint.mintVar, '#b6f5c8');
+          assert.equal(paint.lilacVar, '');
+          assert.equal(paint.yellow, 'rgb(255, 228, 92)');
+          if (hash === '#home' || hash === '#entries') assert.equal(paint.mint, 'rgb(182, 245, 200)');
+          assert.equal(paint.ink, 'rgb(22, 22, 22)');
+          if (paint.tag) assert.equal(paint.tag, 'rgb(22, 22, 22)');
+          if (paint.ghost) assert.equal(paint.ghost, 'rgb(22, 22, 22)');
+          if (paint.arrow) assert.equal(paint.arrow, 'rgb(22, 22, 22)');
+        }
       }
     }
 
@@ -1432,7 +1474,11 @@ async function main() {
     assert.equal(await text(page, '#cap-line'), 'cap RM 450 · RM 50 rolled over');
     assert.equal(await page.$('#today-line'), null);
     assert.notEqual(await page.$('#balances-card'), null);
+    assert.equal(await page.$eval('#balances-card', (el) => el.classList.contains('mint')), true);
+    assert.equal(await page.$eval('#balances-card + article.block', (el) => el.classList.contains('yellow')), true);
+    assert.deepEqual(await blockTones(page), ['yellow', 'mint', 'yellow']);
     assert.equal(await page.$('#main .block.sky'), null);
+    assert.equal(await page.$('#main .block.lilac'), null);
     await page.evaluate(() => { document.getElementById('main').scrollTop = 0; });
     await page.screenshot({ path: `${REPORTS}/streamline-home-light.png` });
 
@@ -1469,6 +1515,163 @@ async function main() {
     await assertSearchToolbar(page);
     await page.screenshot({ path: `${REPORTS}/streamline-log-entries-toolbar-dark.png` });
     await page.evaluate(() => { document.documentElement.dataset.mode = 'light'; });
+
+    await page.setViewport({ width: 390, height: 844, isMobile: true, hasTouch: true, deviceScaleFactor: 2 });
+    await page.evaluate(() => {
+      localStorage.setItem('figure-cap.theme', 'light');
+      document.documentElement.dataset.mode = 'light';
+      document.documentElement.dataset.theme = 'light';
+      localStorage.setItem('figure-cap.v1', JSON.stringify({
+        settings: { monthlyCap: 400, rollover: false, overspendPayback: true, trackingStart: '2026-09', syncUrl: '' },
+        purchases: [
+          {
+            id: 'asuka',
+            name: 'Asuka',
+            price: 80,
+            originalAmount: 80,
+            currency: 'MYR',
+            fxRate: 1,
+            date: '2026-10-20',
+            boughtAs: 'purchased',
+            status: 'received',
+            figureType: '1-12',
+            condition: 'MISB',
+            brand: 'Good Smile',
+            series: 'Evangelion',
+            createdAt: '2026-10-20T00:00:00.000Z',
+            updatedAt: '2026-10-20T00:00:00.000Z'
+          },
+          {
+            id: 'rei',
+            name: 'Rei Ayanami',
+            date: '2026-10-12',
+            boughtAs: 'preorder',
+            status: 'preordered',
+            price: 200,
+            originalAmount: 200,
+            currency: 'MYR',
+            fxRate: 1,
+            figureType: '1-6',
+            series: 'Evangelion',
+            estFullPrice: 200,
+            estFullOriginalAmount: 200,
+            estFullCurrency: 'MYR',
+            estFullFxRate: 1,
+            estFullFxDate: '2026-10-12',
+            depositAmountRm: 50,
+            depositOriginalAmount: 50,
+            depositCurrency: 'MYR',
+            depositFxRate: 1,
+            depositFxDate: '2026-10-12',
+            depositDate: '2026-10-12',
+            balanceDueRm: 150,
+            preorderStatus: 'deposit paid',
+            createdAt: '2026-10-12T00:00:00.000Z',
+            updatedAt: '2026-10-12T00:00:00.000Z'
+          },
+          {
+            id: 'optimus',
+            name: 'Optimus',
+            price: 40,
+            originalAmount: 40,
+            currency: 'MYR',
+            fxRate: 1,
+            date: '2026-09-02',
+            boughtAs: 'purchased',
+            status: 'received',
+            figureType: 'transformers',
+            createdAt: '2026-09-02T00:00:00.000Z',
+            updatedAt: '2026-09-02T00:00:00.000Z'
+          }
+        ],
+        wishlist: [],
+        forSale: [
+          {
+            id: 'sale-miku',
+            name: 'Miku',
+            condition: 'MISB',
+            price: 80,
+            originalAmount: 80,
+            currency: 'MYR',
+            fxRate: 1,
+            status: 'listed',
+            createdAt: '2026-10-02T00:00:00.000Z',
+            updatedAt: '2026-10-02T00:00:00.000Z'
+          },
+          {
+            id: 'sale-mindwipe',
+            name: 'Mindwipe',
+            condition: 'Loose',
+            price: 60,
+            originalAmount: 60,
+            currency: 'MYR',
+            fxRate: 1,
+            status: 'listed',
+            createdAt: '2026-10-01T00:00:00.000Z',
+            updatedAt: '2026-10-01T00:00:00.000Z'
+          }
+        ]
+      }));
+      window.__figureCap.setNow('2026-10-26T04:00:00Z');
+      location.hash = '#settings';
+    });
+    await go(page, '#home', '#balances-card');
+    assert.deepEqual(await blockTones(page), ['yellow', 'mint', 'yellow']);
+    await go(page, '#entries', '#category-totals');
+    assert.equal(await page.$eval('#category-totals', (el) => el.classList.contains('mint')), true);
+    const entryCards = await page.evaluate(() => [...document.querySelectorAll('article.block')].map((el) => {
+      if (el.id === 'category-totals') return 'totals';
+      return el.querySelector('h3')?.textContent.trim();
+    }));
+    assert.deepEqual(entryCards, ['totals', 'Asuka', 'Rei Ayanami', 'Optimus']);
+    assert.deepEqual(await blockTones(page), ['mint', 'yellow', 'mint', 'yellow']);
+    const paid = await page.evaluate(() => {
+      const card = [...document.querySelectorAll('article.block')].find((el) => el.textContent.includes('Deposit paid'));
+      const tag = [...card.querySelectorAll('.tag')].find((el) => el.textContent.trim() === 'Deposit paid');
+      return {
+        tone: card.classList.contains('mint') ? 'mint' : 'yellow',
+        color: getComputedStyle(tag).color,
+        background: getComputedStyle(card).backgroundColor
+      };
+    });
+    assert.equal(paid.tone, 'mint');
+    assert.equal(paid.color, 'rgb(22, 22, 22)');
+    assert.equal(paid.background, 'rgb(182, 245, 200)');
+    await go(page, '#sell', 'article.block');
+    assert.deepEqual(await blockTones(page), ['yellow', 'mint']);
+
+    for (const mode of ['light', 'dark']) {
+      await page.evaluate((next) => {
+        localStorage.setItem('figure-cap.theme', next);
+        document.documentElement.dataset.mode = next;
+        document.documentElement.dataset.theme = next;
+      }, mode);
+      await go(page, '#home', '#balances-card');
+      await page.evaluate(() => { document.getElementById('main').scrollTop = 0; });
+      await assertContrast(page);
+      await assertNoOverflow(page);
+      await page.screenshot({ path: `${REPORTS}/two-tone-home-${mode}.png` });
+      await go(page, '#entries', '#category-totals');
+      await page.evaluate(() => {
+        const scroller = document.getElementById('main');
+        const target = document.getElementById('category-totals');
+        const origin = scroller.getBoundingClientRect().top;
+        scroller.scrollTop = Math.max(0, target.getBoundingClientRect().top - origin + scroller.scrollTop - 8);
+      });
+      await assertContrast(page);
+      await assertNoOverflow(page);
+      await page.screenshot({ path: `${REPORTS}/two-tone-log-${mode}.png` });
+      await go(page, '#sell', 'article.block');
+      await page.evaluate(() => {
+        const scroller = document.getElementById('main');
+        const target = document.querySelector('article.block');
+        const origin = scroller.getBoundingClientRect().top;
+        scroller.scrollTop = Math.max(0, target.getBoundingClientRect().top - origin + scroller.scrollTop - 8);
+      });
+      await assertContrast(page);
+      await assertNoOverflow(page);
+      await page.screenshot({ path: `${REPORTS}/two-tone-sell-${mode}.png` });
+    }
 
     const sw = await page.evaluate(async () => {
       const reg = await navigator.serviceWorker.ready;
