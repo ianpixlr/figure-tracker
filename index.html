@@ -2,19 +2,38 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
   <meta name="description" content="A collection log for figures, with the ringgit left this month.">
-  <meta name="theme-color" content="#f5f5f7" media="(prefers-color-scheme: light)">
-  <meta name="theme-color" content="#121212" media="(prefers-color-scheme: dark)">
-  <meta name="color-scheme" content="light dark">
+  <meta name="theme-color" content="#f5f5f7">
+  <meta name="color-scheme" content="light">
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-capable" content="yes">
-  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="Figure Cap">
   <title>Figure Cap</title>
+  <script>
+    (function () {
+      var choice = 'system';
+      try {
+        var saved = localStorage.getItem('figure-cap.theme');
+        if (saved === 'light' || saved === 'dark' || saved === 'system') choice = saved;
+      } catch (e) {}
+      var dark = false;
+      try { dark = matchMedia('(prefers-color-scheme: dark)').matches; } catch (e) {}
+      var mode = choice === 'light' || choice === 'dark' ? choice : (dark ? 'dark' : 'light');
+      var root = document.documentElement;
+      root.dataset.theme = choice;
+      root.dataset.mode = mode;
+      var color = document.querySelector('meta[name="theme-color"]');
+      if (color) color.setAttribute('content', mode === 'dark' ? '#121212' : '#f5f5f7');
+      var scheme = document.querySelector('meta[name="color-scheme"]');
+      if (scheme) scheme.setAttribute('content', mode);
+    })();
+  </script>
   <link rel="icon" href="icons/favicon-32.png" type="image/png" sizes="32x32">
   <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
   <link rel="manifest" href="manifest.webmanifest">
+  <link rel="preload" href="fonts/ArchivoBlack-Regular.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
