@@ -105,6 +105,8 @@ const MONTHS = [
 
 const planIds = new Set();
 const filters = { year: '', month: '', brand: '', series: '', type: '', q: '' };
+const CHART_PREVIEW = 3;
+let chartExpanded = false;
 let undoItem = null;
 let toastTimer = 0;
 let pendingToastAction = null;
@@ -157,7 +159,10 @@ export function render() {
   document.querySelectorAll('[data-money]').forEach((block) => updateFxHint(block));
   if (route.name === 'sell' || route.name === 'edit-sale') queueCheckRefresh();
 
-  if (routeChanged) scrollPageToTop();
+  if (routeChanged) {
+    chartExpanded = false;
+    scrollPageToTop();
+  }
 }
 
 function scrollPageToTop() {
@@ -559,7 +564,10 @@ function entriesView(data) {
     return String(b.createdAt).localeCompare(String(a.createdAt));
   });
   const totals = categoryTotals(filtered, { year: filters.year, month: filters.month });
-  const chart = history.charts.map((snapshot) => `
+  const shownCharts = chartExpanded || history.charts.length <= CHART_PREVIEW
+    ? history.charts
+    : history.charts.slice(-CHART_PREVIEW);
+  const chart = shownCharts.map((snapshot) => `
     <div class="chart-row">
       <div class="chart-top">
         <span>${esc(formatMonthShort(snapshot.ym))}</span>
@@ -571,6 +579,9 @@ function entriesView(data) {
       <p class="meta">${withAmounts(`Cap ${formatRM(snapshot.cap)}${snapshot.payback > 0 ? ` · ${formatRM(snapshot.payback)} carried from last month` : ''} · ${statusLine(snapshot)}`)}</p>
     </div>
   `).join('');
+  const chartToggle = history.charts.length > CHART_PREVIEW
+    ? `<button class="text-btn" type="button" data-action="toggle-chart" aria-expanded="${chartExpanded ? 'true' : 'false'}">${chartExpanded ? 'Show less' : 'Show all'}</button>`
+    : '';
   const groups = groupByMonth(filtered);
   const active = activeFilters();
   return `
@@ -586,8 +597,9 @@ function entriesView(data) {
     `).join('')}</div>` : ''}
     <section class="panel" id="chart">
       <h3>Monthly spend</h3>
-      <p class="meta">Every purchase, measured against that month's cap.${history.truncated ? ' Latest 8 months.' : ''}</p>
+      <p class="meta">Every purchase, measured against that month's cap.</p>
       ${chart || '<p class="empty">No purchases yet.</p>'}
+      ${chartToggle}
     </section>
     <article class="block ${TONES[0] === 'yellow' ? 'mint' : 'yellow'}" id="category-totals">
       <p class="kicker" data-edge>By type</p>
@@ -1345,6 +1357,15 @@ function onClick(event) {
       box.querySelectorAll('[data-money]').forEach((block) => scheduleFx(block));
     }
     button.hidden = true;
+  }
+  if (action === 'toggle-chart') {
+    chartExpanded = !chartExpanded;
+    const scroller = document.getElementById('main');
+    const top = scroller ? scroller.scrollTop : 0;
+    render();
+    const next = document.getElementById('main');
+    if (next) next.scrollTop = top;
+    return;
   }
   if (action === 'open-filters') {
     const loaded = currentData();

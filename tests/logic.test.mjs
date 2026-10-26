@@ -377,15 +377,15 @@ test('plan total is compared with room left', () => {
   assert.equal(alreadyOver.over, 10);
 });
 
-test('history groups months and the chart keeps a short recent window', () => {
+test('history groups months and the chart lists every month', () => {
   const purchases = [buy('2026-09-02', 150), buy('2026-10-03', 80), buy('2026-10-01', 20)];
   const groups = historyGroups(settings(), purchases);
   assert.deepEqual(groups.map((group) => group.ym), ['2026-10', '2026-09']);
   assert.equal(groups[0].spent, 100);
   assert.deepEqual(groups[0].purchases.map((item) => item.price), [80, 20]);
   const chart = chartMonths(settings({ trackingStart: '2025-01' }), purchases, '2026-10');
-  assert.equal(chart.truncated, true);
-  assert.equal(chart.months.length, 8);
+  assert.equal(chart.months[0], '2025-01');
+  assert.equal(chart.months.length, 22);
   assert.equal(chart.months.at(-1), '2026-10');
 });
 

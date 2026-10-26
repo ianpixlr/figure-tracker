@@ -281,12 +281,7 @@ export function planModel(items, selectedIds, left) {
 export function chartMonths(settings, purchases, todayYm) {
   let begin = budgetStart(settings, purchases) || todayYm;
   if (begin > todayYm) begin = todayYm;
-  const months = monthsFrom(begin, todayYm);
-  const truncated = months.length > 8;
-  return {
-    months: truncated ? months.slice(-8) : months,
-    truncated
-  };
+  return { months: monthsFrom(begin, todayYm) };
 }
 
 export function historyGroups(settings, purchases) {
@@ -312,7 +307,6 @@ export function historyModel(data, date) {
   const todayYm = todayYMD(date).slice(0, 7);
   const chart = chartMonths(data.settings, data.purchases, todayYm);
   return {
-    truncated: chart.truncated,
     charts: chart.months.map((ym) => monthSnapshot(data.settings, data.purchases, ym)),
     groups: historyGroups(data.settings, data.purchases)
   };
