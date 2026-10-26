@@ -1,6 +1,6 @@
-// Offline shell for Figure Cap. Data stays in the page, not in this cache.
+// Offline shell for Figure Cap. Records stay in localStorage, not in this cache.
 
-const CACHE = 'figure-cap-v1';
+const CACHE = 'figure-cap-v7';
 const ASSETS = [
   './index.html',
   './styles.css',
@@ -11,6 +11,10 @@ const ASSETS = [
   './js/budget.js',
   './js/money.js',
   './js/time.js',
+  './js/fx.js',
+  './js/catalog.js',
+  './js/sync.js',
+  './fonts/ArchivoBlack-Regular.woff2',
   './icons/icon-192.png',
   './icons/icon-512.png',
   './icons/apple-touch-icon.png',

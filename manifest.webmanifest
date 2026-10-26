@@ -1,12 +1,12 @@
 {
   "name": "Figure Cap",
   "short_name": "Figure Cap",
-  "description": "A monthly cap for figure collecting. Data stays on this device.",
+  "description": "A monthly cap for figure collecting. Prices in ringgit, on this phone.",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",
-  "background_color": "#f3efe6",
-  "theme_color": "#0f5c45",
+  "background_color": "#f4f2ee",
+  "theme_color": "#141414",
   "lang": "en",
   "icons": [
     {
