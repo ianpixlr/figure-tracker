@@ -82,21 +82,19 @@ test('theme is stored apart from the collection and the sheet', () => {
   assert.deepEqual(Object.keys(body), ['action', 'purchases', 'wishlist', 'forSale']);
 });
 
-test('colour cards are yellow and mint in both themes', () => {
+test('summary cards stay yellow and list cards do not use mint', () => {
   const css = readFileSync(new URL('../styles.css', import.meta.url), 'utf8');
   const ui = readFileSync(new URL('../js/ui.js', import.meta.url), 'utf8');
-  for (const name of ['lilac', 'coral', 'sky']) {
+  for (const name of ['lilac', 'coral', 'sky', 'mint']) {
     assert.equal(css.includes(`--${name}`), false, name);
     assert.equal(css.includes(`.block.${name}`), false, name);
     assert.equal(ui.includes(`block ${name}`), false, name);
   }
-  assert.match(ui, /const TONES = \['yellow', 'mint'\];/);
+  assert.equal(ui.includes('TONES'), false);
   assert.match(css, /--yellow:\s*#ffe45c;/);
-  assert.match(css, /--mint:\s*#b6f5c8;/);
   const dark = css.slice(css.indexOf('html[data-mode="dark"]'));
   assert.doesNotMatch(dark, /--yellow:\s*#/);
-  assert.doesNotMatch(dark, /--mint:\s*#/);
-  assert.match(dark, /html\[data-mode="dark"\] \.block \{[^}]*--card-ink:\s*#161616;/s);
+  assert.match(dark, /html\[data-mode="dark"\] \.block\.yellow \{[^}]*--card-ink:\s*#161616;/s);
   assert.match(dark, /--card-btn-ink:\s*#161616;/);
   assert.match(dark, /--tag-ink:\s*#161616;/);
 });

@@ -53,10 +53,14 @@ export function yearSpent(purchases, year) {
   return fromCents(spentCents(purchases, (date) => isYMD(date) && date.slice(0, 4) === year));
 }
 
-export function balancesComing(purchases) {
-  const open = purchases.filter((purchase) => (
+export function openPreorders(purchases) {
+  return purchases.filter((purchase) => (
     purchase.preorderStatus === 'deposit paid' && (toCents(purchase.balanceDueRm) ?? 0) > 0
   ));
+}
+
+export function balancesComing(purchases) {
+  const open = openPreorders(purchases);
   const cents = open.reduce((sum, purchase) => sum + (toCents(purchase.balanceDueRm) ?? 0), 0);
   return { count: open.length, total: fromCents(cents) };
 }

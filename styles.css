@@ -32,7 +32,7 @@
   --muted: #5c5c66;
   --line: rgba(20, 20, 20, 0.08);
   --yellow: #ffe45c;
-  --mint: #b6f5c8;
+  --pill: #e7e7eb;
   --banner: #ffc1b3;
   --shadow: 0 1px 2px rgba(20, 20, 20, 0.04), 0 10px 28px rgba(20, 20, 20, 0.06);
   --card-ink: #161616;
@@ -99,6 +99,7 @@ html[data-mode="dark"] {
   --card-btn-bg: rgba(255, 255, 255, 0.12);
   --card-btn-ink: #f4f4f5;
   --card-line: rgba(244, 244, 245, 0.28);
+  --pill: rgba(255, 255, 255, 0.14);
   --accent: #f4f4f5;
 }
 
@@ -444,10 +445,9 @@ form {
 }
 
 .block.yellow { background: var(--yellow); }
-.block.mint { background: var(--mint); }
 
-/* Pastel cards stay yellow and mint in dark mode, so ink inside them stays dark. */
-html[data-mode="dark"] .block {
+/* Summary cards stay bright yellow with dark text in dark mode. */
+html[data-mode="dark"] .block.yellow {
   --elev: #fff;
   --ink: #141414;
   --muted: #5c5c66;
@@ -536,10 +536,14 @@ html[data-mode="dark"] .block {
   max-width: 100%;
   min-height: 22px;
   padding: 0 8px;
-  border: 0;
+  border: 1px solid transparent;
   border-radius: 99px;
-  background: var(--tag-bg);
-  color: var(--tag-ink);
+  background: var(--yellow);
+  color: #161616;
+}
+
+.block.yellow .tag {
+  border-color: rgba(22, 22, 22, 0.22);
 }
 
 .banner, .form-error, .category-error, .cap-note {
@@ -568,18 +572,21 @@ html[data-mode="dark"] .block {
 
 .note { margin: 8px 0 0; white-space: pre-wrap; }
 
-.stats, .spec, .spec-grid {
+.stats {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(min(100%, 7.5rem), 1fr));
   gap: 8px 12px;
   margin-top: 12px;
 }
 
-.spec, .spec-grid { grid-template-columns: repeat(auto-fit, minmax(min(100%, 8.5rem), 1fr)); }
+.stats p { margin: 0; }
 
-.stats p, .spec p { margin: 0; }
+.ytd-count {
+  margin-top: 12px;
+  text-align: left;
+}
 
-.stat-v, .spec-value {
+.stat-v {
   margin-top: 3px;
   font-weight: 400;
   letter-spacing: -0.03em;
@@ -709,6 +716,10 @@ html[data-mode="dark"] .block {
   gap: 8px;
   margin-bottom: 10px;
 }
+
+#preorder-filter .meta { margin: 0; }
+
+#preorder-filter .text-btn { margin: 0 0 0 auto; }
 
 .amt,
 .block-value,
@@ -1041,6 +1052,13 @@ input[type="file"] {
   border: 1px solid var(--card-line);
 }
 
+.block:not(.yellow) .btn-ghost,
+.block:not(.yellow) .btn.danger,
+.block:not(.yellow) .arrow {
+  background: var(--pill);
+  color: var(--tag-ink);
+}
+
 button:disabled { opacity: 0.45; cursor: not-allowed; }
 
 .btn-row {
@@ -1049,6 +1067,8 @@ button:disabled { opacity: 0.45; cursor: not-allowed; }
   gap: 8px;
   margin-top: 12px;
 }
+
+.btn-row.solo { grid-template-columns: 1fr; }
 
 .search-pills {
   display: flex;

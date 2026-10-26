@@ -14,11 +14,9 @@ async function text(page, selector) {
 }
 
 async function blockTones(page) {
-  return page.$$eval('#main article.block', (els) => els.map((el) => {
-    if (el.classList.contains('yellow')) return 'yellow';
-    if (el.classList.contains('mint')) return 'mint';
-    return 'other';
-  }));
+  return page.$$eval('#main article.block', (els) => els.map((el) => (
+    el.classList.contains('yellow') ? 'yellow' : 'white'
+  )));
 }
 
 async function bodyText(page) {
@@ -1001,7 +999,7 @@ async function main() {
     assert.equal(await page.$('#main .block.sky'), null);
     assert.equal(await page.$('#main .block.coral'), null);
     assert.equal(await page.$('#main .block.lilac'), null);
-    assert.deepEqual(await blockTones(page), ['yellow', 'mint']);
+    assert.deepEqual(await blockTones(page), ['white', 'yellow']);
     assert.equal(homeText.includes('One in, one out'), false);
     assert.equal(homeText.includes('Rules'), false);
     assert.equal(homeText.includes('48-hour'), false);
@@ -1057,10 +1055,34 @@ async function main() {
     await typeInto(page, '#field-notes', 'window');
     await press(page, '#log-form button[type="submit"]');
     await page.waitForSelector('#month-title');
-    const latestMeta = await page.$eval('article.block.yellow p.meta', (el) => el.textContent.trim());
-    assert.match(latestMeta, /Neon Genesis Evangelion/);
-    assert.equal(latestMeta.includes('Received'), false);
-    assert.equal(latestMeta.includes('Purchased'), false);
+    const latestHome = await page.evaluate(() => {
+      const article = document.querySelector('article.block:not(.yellow)');
+      const ytd = document.getElementById('ytd-value').closest('article');
+      return {
+        order: [...article.children].map((el) => (
+          el.classList.contains('card-head') ? 'tags'
+            : el.tagName === 'H3' ? 'name'
+              : el.classList.contains('block-value') ? 'price'
+                : el.classList.contains('meta') ? 'meta'
+                  : el.classList.contains('note') ? 'note'
+                    : el.classList.contains('btn-row') ? 'actions'
+                      : el.className
+        )),
+        meta: article.querySelector('p.meta')?.textContent.trim() || '',
+        name: article.querySelector('h3')?.textContent.trim() || '',
+        price: article.querySelector('.block-value')?.textContent.trim() || '',
+        ytd: ytd.innerText.replace(/\s+/g, ' ').trim(),
+        ytdLabels: [...ytd.querySelectorAll('.spec-label')].map((el) => el.textContent.trim())
+      };
+    });
+    assert.deepEqual(latestHome.order, ['tags', 'meta', 'name', 'price', 'note', 'actions']);
+    assert.match(latestHome.meta, /Good Smile · Neon Genesis Evangelion$/);
+    assert.match(latestHome.name, /Asuka/);
+    assert.equal(latestHome.price, 'RM 80.00');
+    assert.equal(latestHome.meta.includes('Received'), false);
+    assert.equal(latestHome.meta.includes('Purchased'), false);
+    assert.deepEqual(latestHome.ytdLabels, ['Purchases']);
+    assert.equal(latestHome.ytd.includes('1/12'), false);
     assert.equal(await text(page, '#spent-value'), 'RM 80.00');
     assert.equal(await text(page, '#left-value'), 'RM 320 / 400');
     assert.equal(await text(page, '#ytd-value'), 'RM 80.00');
@@ -1416,7 +1438,7 @@ async function main() {
     assert.equal(await page.$('#main .block.coral'), null);
     assert.equal(await page.$('#main .block.lilac'), null);
     assert.equal(await page.$('#balances-card'), null);
-    assert.deepEqual(await blockTones(page), ['yellow', 'mint']);
+    assert.deepEqual(await blockTones(page), ['white', 'yellow']);
     assert.equal(await page.$('#today-line'), null);
     assert.match(await page.$eval('#cap-line', (el) => el.innerHTML), /<span class="amt">cap RM 450<\/span> · <span class="amt">RM 50<\/span> rolled over/);
     await page.evaluate(() => {
@@ -1584,31 +1606,42 @@ async function main() {
           const paint = await page.evaluate(() => {
             const root = getComputedStyle(document.documentElement);
             const yellow = document.querySelector('article.block.yellow');
-            const mint = document.querySelector('article.block.mint');
-            const tag = yellow?.querySelector('.tag');
-            const ghost = yellow?.querySelector('.btn-ghost');
-            const arrow = yellow?.querySelector('.arrow');
+            const list = document.querySelector('article.block:not(.yellow)');
+            const panel = document.querySelector('.panel');
+            const textOf = (el) => el?.querySelector('h3, .block-value, .kicker, .spec-label');
+            const yellowText = textOf(yellow);
+            const listText = textOf(list);
+            const typeTag = list?.querySelector('.tag');
             return {
               yellowVar: root.getPropertyValue('--yellow').trim(),
               mintVar: root.getPropertyValue('--mint').trim(),
               lilacVar: root.getPropertyValue('--lilac').trim(),
               yellow: yellow ? getComputedStyle(yellow).backgroundColor : '',
-              mint: mint ? getComputedStyle(mint).backgroundColor : '',
-              ink: yellow?.querySelector('h3') ? getComputedStyle(yellow.querySelector('h3')).color : '',
-              tag: tag ? getComputedStyle(tag).color : '',
-              ghost: ghost ? getComputedStyle(ghost).color : '',
-              arrow: arrow ? getComputedStyle(arrow).color : ''
+              yellowInk: yellowText ? getComputedStyle(yellowText).color : '',
+              list: list ? getComputedStyle(list).backgroundColor : '',
+              listInk: listText ? getComputedStyle(listText).color : '',
+              panel: panel ? getComputedStyle(panel).backgroundColor : '',
+              typeTag: typeTag ? getComputedStyle(typeTag).backgroundColor : '',
+              typeInk: typeTag ? getComputedStyle(typeTag).color : '',
+              mintCard: Boolean(document.querySelector('.mint'))
             };
           });
           assert.equal(paint.yellowVar, '#ffe45c');
-          assert.equal(paint.mintVar, '#b6f5c8');
+          assert.equal(paint.mintVar, '');
           assert.equal(paint.lilacVar, '');
-          assert.equal(paint.yellow, 'rgb(255, 228, 92)');
-          if (hash === '#home' || hash === '#entries') assert.equal(paint.mint, 'rgb(182, 245, 200)');
-          assert.equal(paint.ink, 'rgb(22, 22, 22)');
-          if (paint.tag) assert.equal(paint.tag, 'rgb(22, 22, 22)');
-          if (paint.ghost) assert.equal(paint.ghost, 'rgb(22, 22, 22)');
-          if (paint.arrow) assert.equal(paint.arrow, 'rgb(22, 22, 22)');
+          assert.equal(paint.mintCard, false);
+          if (hash !== '#sell') {
+            assert.equal(paint.yellow, 'rgb(255, 228, 92)');
+            assert.equal(paint.yellowInk, 'rgb(22, 22, 22)');
+          }
+          if (paint.list) {
+            assert.equal(paint.list, paint.panel || 'rgb(28, 28, 28)');
+            assert.equal(paint.listInk, 'rgb(244, 244, 245)');
+          }
+          if (paint.typeTag) {
+            assert.equal(paint.typeTag, 'rgb(255, 228, 92)');
+            assert.equal(paint.typeInk, 'rgb(22, 22, 22)');
+          }
         }
       }
     }
@@ -1876,9 +1909,9 @@ async function main() {
     assert.equal(await text(page, '#cap-line'), 'cap RM 450 · RM 50 rolled over');
     assert.equal(await page.$('#today-line'), null);
     assert.notEqual(await page.$('#balances-card'), null);
-    assert.equal(await page.$eval('#balances-card', (el) => el.classList.contains('mint')), true);
+    assert.equal(await page.$eval('#balances-card', (el) => el.classList.contains('yellow')), true);
     assert.equal(await page.$eval('#balances-card + article.block', (el) => el.classList.contains('yellow')), true);
-    assert.deepEqual(await blockTones(page), ['yellow', 'mint', 'yellow']);
+    assert.deepEqual(await blockTones(page), ['white', 'yellow', 'yellow']);
     assert.equal(await page.$('#main .block.sky'), null);
     assert.equal(await page.$('#main .block.lilac'), null);
     await page.evaluate(() => { document.getElementById('main').scrollTop = 0; });
@@ -2018,29 +2051,51 @@ async function main() {
       location.hash = '#settings';
     });
     await go(page, '#home', '#balances-card');
-    assert.deepEqual(await blockTones(page), ['yellow', 'mint', 'yellow']);
+    assert.deepEqual(await blockTones(page), ['white', 'yellow', 'yellow']);
     await go(page, '#entries', '#category-totals');
-    assert.equal(await page.$eval('#category-totals', (el) => el.classList.contains('mint')), true);
+    assert.equal(await page.$eval('#category-totals', (el) => el.classList.contains('yellow')), true);
     const entryCards = await page.evaluate(() => [...document.querySelectorAll('article.block')].map((el) => {
       if (el.id === 'category-totals') return 'totals';
       return el.querySelector('h3')?.textContent.trim();
     }));
     assert.deepEqual(entryCards, ['totals', 'Asuka', 'Rei Ayanami', 'Optimus']);
-    assert.deepEqual(await blockTones(page), ['mint', 'yellow', 'mint', 'yellow']);
+    assert.deepEqual(await blockTones(page), ['yellow', 'white', 'white', 'white']);
     const paid = await page.evaluate(() => {
       const card = [...document.querySelectorAll('article.block')].find((el) => el.textContent.includes('Deposit paid'));
-      const tag = [...card.querySelectorAll('.tag')].find((el) => el.textContent.trim() === 'Deposit paid');
+      const tags = [...card.querySelectorAll('.tag')].map((el) => ({
+        text: el.textContent.trim(),
+        bg: getComputedStyle(el).backgroundColor,
+        color: getComputedStyle(el).color
+      }));
+      const edit = card.querySelector('.btn-ghost');
+      const chart = document.getElementById('chart');
       return {
-        tone: card.classList.contains('mint') ? 'mint' : 'yellow',
-        color: getComputedStyle(tag).color,
-        background: getComputedStyle(card).backgroundColor
+        yellow: card.classList.contains('yellow'),
+        background: getComputedStyle(card).backgroundColor,
+        chart: getComputedStyle(chart).backgroundColor,
+        radius: getComputedStyle(card).borderRadius,
+        chartRadius: getComputedStyle(chart).borderRadius,
+        shadow: getComputedStyle(card).boxShadow,
+        chartShadow: getComputedStyle(chart).boxShadow,
+        tags,
+        editBg: getComputedStyle(edit).backgroundColor,
+        editColor: getComputedStyle(edit).color
       };
     });
-    assert.equal(paid.tone, 'mint');
-    assert.equal(paid.color, 'rgb(22, 22, 22)');
-    assert.equal(paid.background, 'rgb(182, 245, 200)');
+    assert.equal(paid.yellow, false);
+    assert.equal(paid.background, paid.chart);
+    assert.equal(paid.background, 'rgb(255, 255, 255)');
+    assert.equal(paid.radius, paid.chartRadius);
+    assert.equal(paid.shadow, paid.chartShadow);
+    assert.equal(paid.tags[0].text, '1/6');
+    assert.equal(paid.tags[0].bg, 'rgb(255, 228, 92)');
+    assert.equal(paid.tags[0].color, 'rgb(22, 22, 22)');
+    assert.equal(paid.tags.find((tag) => tag.text === 'Deposit paid').bg, 'rgb(255, 228, 92)');
+    assert.equal(paid.tags.find((tag) => tag.text === 'Deposit paid').color, 'rgb(22, 22, 22)');
+    assert.equal(paid.editBg, 'rgb(231, 231, 235)');
+    assert.equal(paid.editColor, 'rgb(22, 22, 22)');
     await go(page, '#sell', 'article.block');
-    assert.deepEqual(await blockTones(page), ['yellow', 'mint']);
+    assert.deepEqual(await blockTones(page), ['white', 'white']);
 
     for (const mode of ['light', 'dark']) {
       await page.evaluate((next) => {
@@ -2049,20 +2104,44 @@ async function main() {
         document.documentElement.dataset.theme = next;
       }, mode);
       await go(page, '#home', '#balances-card');
-      await page.evaluate(() => { document.getElementById('main').scrollTop = 0; });
-      await assertContrast(page);
-      await assertNoOverflow(page);
-      await page.screenshot({ path: `${REPORTS}/two-tone-home-${mode}.png` });
-      await go(page, '#entries', '#category-totals');
+      if (mode === 'light') {
+        const summaryTags = await page.evaluate(() => [...document.querySelectorAll('article.block.yellow .tag')].map((el) => {
+          const style = getComputedStyle(el);
+          return {
+            text: el.textContent.trim(),
+            bg: style.backgroundColor,
+            color: style.color,
+            border: style.borderTopWidth,
+            borderColor: style.borderTopColor
+          };
+        }));
+        assert.ok(summaryTags.length >= 2, JSON.stringify(summaryTags));
+        for (const tag of summaryTags) {
+          assert.equal(tag.bg, 'rgb(255, 228, 92)', tag.text);
+          assert.equal(tag.color, 'rgb(22, 22, 22)', tag.text);
+          assert.equal(tag.border, '1px', tag.text);
+          assert.notEqual(tag.borderColor, 'rgba(0, 0, 0, 0)', tag.text);
+        }
+      }
       await page.evaluate(() => {
         const scroller = document.getElementById('main');
-        const target = document.getElementById('category-totals');
+        const target = document.querySelector('article.block:not(.yellow)');
         const origin = scroller.getBoundingClientRect().top;
-        scroller.scrollTop = Math.max(0, target.getBoundingClientRect().top - origin + scroller.scrollTop - 8);
+        scroller.scrollTop = Math.max(0, target.getBoundingClientRect().top - origin + scroller.scrollTop - 16);
       });
       await assertContrast(page);
       await assertNoOverflow(page);
-      await page.screenshot({ path: `${REPORTS}/two-tone-log-${mode}.png` });
+      await page.screenshot({ path: `${REPORTS}/cards-home-${mode}.png` });
+      await go(page, '#entries', '#category-totals');
+      await page.evaluate(() => {
+        const scroller = document.getElementById('main');
+        const target = document.querySelector('article.block:not(.yellow)');
+        const origin = scroller.getBoundingClientRect().top;
+        scroller.scrollTop = Math.max(0, target.getBoundingClientRect().top - origin + scroller.scrollTop - 96);
+      });
+      await assertContrast(page);
+      await assertNoOverflow(page);
+      await page.screenshot({ path: `${REPORTS}/cards-entries-${mode}.png` });
       await go(page, '#sell', 'article.block');
       await page.evaluate(() => {
         const scroller = document.getElementById('main');
@@ -2209,6 +2288,56 @@ async function main() {
     assert.equal(await text(page, '#spent-value'), 'RM 840.00');
     assert.equal(await text(page, '#ytd-value'), 'RM 1,515.00');
     assert.equal(await text(page, '#balances-card .block-value'), 'RM 875.00');
+    const ytdHome = await page.evaluate(() => {
+      const card = document.getElementById('ytd-value').closest('article');
+      return {
+        labels: [...card.querySelectorAll('.spec-label')].map((el) => el.textContent.trim()),
+        text: card.innerText
+      };
+    });
+    assert.deepEqual(ytdHome.labels, ['Purchases']);
+    assert.equal(/1\/6|1\/12|Transformers|Model Kit/.test(ytdHome.text), false);
+    assert.equal(await page.$eval('#balances-card .arrow', (el) => el.getAttribute('href')), '#entries/preorders');
+    assert.equal(await page.$eval('#ytd-value', (el) => el.closest('article').querySelector('.arrow').getAttribute('href')), '#entries/types');
+    await page.click('a[aria-label="Open spending by type"]');
+    await page.waitForFunction(() => location.hash === '#entries/types');
+    await page.waitForSelector('#category-totals');
+    const typeGap = await page.evaluate(() => {
+      const main = document.getElementById('main').getBoundingClientRect();
+      const card = document.getElementById('category-totals');
+      const rect = card.getBoundingClientRect();
+      const labels = [...card.querySelectorAll('.spec-label')].map((el) => el.textContent.trim());
+      return { gap: rect.top - main.top, labels, current: document.querySelector('.nav a[aria-current="page"]')?.textContent.trim() || '' };
+    });
+    assert.ok(typeGap.gap >= 0 && typeGap.gap <= 16, JSON.stringify(typeGap));
+    assert.ok(typeGap.labels.includes('1/6') && typeGap.labels.includes('1/12'), JSON.stringify(typeGap));
+    assert.equal(typeGap.current, 'Log');
+    await go(page, '#home', '#balances-card');
+    await page.click('#balances-card .arrow');
+    await page.waitForSelector('#preorder-filter');
+    const openOnly = await page.evaluate(() => ({
+      names: [...document.querySelectorAll('.month-group article h3')].map((el) => el.textContent.trim()),
+      showAll: document.querySelector('#preorder-filter a')?.textContent.trim() || '',
+      href: document.querySelector('#preorder-filter a')?.getAttribute('href') || '',
+      arrows: document.querySelectorAll('.month-group .arrow').length,
+      label: document.querySelector('#preorder-filter .meta')?.textContent.trim() || ''
+    }));
+    assert.deepEqual(openOnly.names, ['Asuka']);
+    assert.equal(openOnly.showAll, 'Show all');
+    assert.equal(openOnly.href, '#entries');
+    assert.equal(openOnly.arrows, 0);
+    assert.equal(openOnly.label, 'Open pre-orders');
+    await page.setViewport({ width: 390, height: 844, isMobile: true, hasTouch: true, deviceScaleFactor: 2 });
+    await page.evaluate(() => {
+      const scroller = document.getElementById('main');
+      const bar = document.getElementById('preorder-filter');
+      const origin = scroller.getBoundingClientRect().top;
+      scroller.scrollTop = Math.max(0, bar.getBoundingClientRect().top - origin + scroller.scrollTop - 8);
+    });
+    await page.screenshot({ path: `${REPORTS}/preorders.png` });
+    await page.click('#preorder-filter a');
+    await page.waitForFunction(() => location.hash === '#entries' && document.querySelector('[data-id="rei"]') && !document.getElementById('preorder-filter'));
+    await go(page, '#home', '#balances-card');
     await page.evaluate(() => {
       const scroller = document.getElementById('main');
       const card = document.getElementById('balances-card');
@@ -2364,6 +2493,20 @@ async function main() {
     assert.equal(cardOrder.fonts.metaWeight, '400');
     assert.equal(cardOrder.fonts.name, '22px');
     assert.equal(cardOrder.fonts.price, '22px');
+    const entryEdge = await page.evaluate(() => {
+      const card = document.querySelector('[data-id="soundwave"]');
+      const left = card.getBoundingClientRect().left + parseFloat(getComputedStyle(card).paddingLeft);
+      return {
+        arrow: Boolean(card.querySelector('.arrow')),
+        head: Math.abs(card.querySelector('.card-head').getBoundingClientRect().left - left),
+        name: Math.abs(card.querySelector('h3').getBoundingClientRect().left - left),
+        edit: card.querySelector('.btn-row a')?.textContent.trim() || ''
+      };
+    });
+    assert.equal(entryEdge.arrow, false);
+    assert.ok(entryEdge.head <= 1, JSON.stringify(entryEdge));
+    assert.ok(entryEdge.name <= 1, JSON.stringify(entryEdge));
+    assert.equal(entryEdge.edit, 'Edit');
     await page.evaluate(() => {
       const scroller = document.getElementById('main');
       const card = document.querySelector('[data-id="soundwave"]');
@@ -2373,6 +2516,117 @@ async function main() {
     await assertTypeScale(page);
     await assertNoOverflow(page);
     await page.screenshot({ path: `${REPORTS}/log-card-after.png` });
+    await clipShot(page, '[data-id="soundwave"]', `${REPORTS}/entries-no-arrow.png`, 12);
+
+    await page.setViewport({ width: 390, height: 844, isMobile: true, hasTouch: true, deviceScaleFactor: 2 });
+    await go(page, '#home', '[data-id="soundwave"]');
+    const homeLatest = await page.evaluate(() => {
+      const read = (article) => [...article.children].map((el) => {
+        let kind = 'other';
+        if (el.classList.contains('card-head')) kind = 'tags';
+        else if (el.tagName === 'H3') kind = 'name';
+        else if (el.classList.contains('block-value')) kind = 'price';
+        else if (el.classList.contains('meta')) kind = 'meta';
+        else if (el.classList.contains('btn-row')) kind = 'actions';
+        else if (el.classList.contains('ytd-count')) kind = 'count';
+        return { kind, text: el.textContent.replace(/\s+/g, ' ').trim() };
+      });
+      const latest = document.querySelector('[data-id="soundwave"]');
+      const ytd = document.getElementById('ytd-value').closest('article');
+      const count = ytd.querySelector('.ytd-count');
+      const countStyle = getComputedStyle(count);
+      const name = latest.querySelector('h3');
+      return {
+        latest: read(latest),
+        ytd: read(ytd),
+        countLeft: count.getBoundingClientRect().left,
+        kickerLeft: ytd.querySelector('.kicker').getBoundingClientRect().left,
+        totalLeft: document.getElementById('ytd-value').getBoundingClientRect().left,
+        countAlign: countStyle.textAlign,
+        countSize: getComputedStyle(count.querySelector('.stat-v')).fontSize,
+        nameSize: getComputedStyle(name).fontSize,
+        priceSize: getComputedStyle(latest.querySelector('.block-value')).fontSize,
+        metaSize: getComputedStyle(latest.querySelector('.meta')).fontSize,
+        arrow: Boolean(latest.querySelector('.arrow')),
+        buttons: [...latest.querySelectorAll('.btn-row a, .btn-row button')].map((el) => el.textContent.trim()),
+        fullWidth: (() => {
+          const button = latest.querySelector('.btn-row a, .btn-row button');
+          const style = getComputedStyle(latest);
+          const inner = latest.getBoundingClientRect().width - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight);
+          return Math.abs(button.getBoundingClientRect().width - inner) <= 2;
+        })(),
+        logArrow: Boolean(document.querySelector('a.arrow[aria-label="Log a purchase"]'))
+      };
+    });
+    assert.deepEqual(homeLatest.latest.map((row) => row.kind), ['tags', 'meta', 'name', 'price', 'meta', 'actions']);
+    assert.match(homeLatest.latest[0].text, /Model Kit/);
+    assert.equal(homeLatest.latest[1].text, '4 Oct · Blokees · Wheels C04');
+    assert.equal(homeLatest.latest[2].text, 'Soundwave (Laserbeak)');
+    assert.equal(homeLatest.latest[3].text, 'RM 42.31');
+    assert.equal(homeLatest.latest[4].text, 'CN¥69.48 · PinDuoDuo');
+    assert.equal(homeLatest.arrow, false);
+    assert.deepEqual(homeLatest.buttons, ['Edit']);
+    assert.equal(homeLatest.fullWidth, true);
+    assert.equal(homeLatest.logArrow, false);
+    assert.deepEqual(homeLatest.ytd.map((row) => row.kind), ['tags', 'other', 'price', 'count']);
+    assert.match(homeLatest.ytd[1].text, /Year to date/);
+    assert.match(homeLatest.ytd[3].text, /^Purchases 4$/);
+    assert.equal(homeLatest.ytd.some((row) => /Model Kit|1\/6|1\/12|Transformers/.test(row.text)), false);
+    assert.ok(Math.abs(homeLatest.countLeft - homeLatest.kickerLeft) <= 1);
+    assert.ok(Math.abs(homeLatest.countLeft - homeLatest.totalLeft) <= 1);
+    assert.equal(homeLatest.countAlign, 'left');
+    assert.equal(homeLatest.countSize, '15px');
+    assert.equal(homeLatest.nameSize, '22px');
+    assert.equal(homeLatest.priceSize, '22px');
+    assert.equal(homeLatest.metaSize, '15px');
+    await page.evaluate(() => {
+      const scroller = document.getElementById('main');
+      const card = document.querySelector('[data-id="soundwave"]');
+      const origin = scroller.getBoundingClientRect().top;
+      scroller.scrollTop = Math.max(0, card.getBoundingClientRect().top - origin + scroller.scrollTop - 16);
+    });
+    await assertNoOverflow(page);
+    await assertTypeScale(page);
+    await page.screenshot({ path: `${REPORTS}/home-latest.png` });
+
+    const homeBeforePay = await page.evaluate(() => localStorage.getItem('figure-cap.v1'));
+    await page.evaluate(() => {
+      const data = JSON.parse(localStorage.getItem('figure-cap.v1'));
+      const item = data.purchases.find((row) => row.id === 'soundwave');
+      Object.assign(item, {
+        boughtAs: 'preorder',
+        estFullPrice: 80,
+        estFullOriginalAmount: 80,
+        estFullCurrency: 'MYR',
+        estFullFxRate: 1,
+        estFullFxDate: '2026-10-04',
+        depositAmountRm: 20,
+        depositOriginalAmount: 20,
+        depositCurrency: 'MYR',
+        depositFxRate: 1,
+        depositFxDate: '2026-10-04',
+        depositDate: '2026-10-04'
+      });
+      localStorage.setItem('figure-cap.v1', JSON.stringify(data));
+    });
+    await go(page, '#entries', '[data-id="soundwave"]');
+    const payEntry = await page.evaluate(() => {
+      const card = document.querySelector('.month-group [data-id="soundwave"]');
+      return [...card.querySelectorAll('.btn-row a, .btn-row button')].map((el) => el.textContent.trim());
+    });
+    assert.deepEqual(payEntry, ['Pay balance', 'Delete']);
+    await go(page, '#home', '[data-id="soundwave"]');
+    const payHome = await page.evaluate(() => {
+      const latest = document.querySelector('[data-id="soundwave"]');
+      return {
+        buttons: [...latest.querySelectorAll('.btn-row a, .btn-row button')].map((el) => el.textContent.trim()),
+        arrow: Boolean(latest.querySelector('.arrow'))
+      };
+    });
+    assert.deepEqual(payHome.buttons, ['Pay balance']);
+    assert.equal(payHome.arrow, false);
+    await page.evaluate((saved) => localStorage.setItem('figure-cap.v1', saved), homeBeforePay);
+    await go(page, '#entries', '#chart');
 
     await go(page, '#wish', '[data-id="wish-sw"]');
     const wishOrder = await page.evaluate(() => {
@@ -2418,6 +2672,15 @@ async function main() {
     assert.equal(saleOrder[4].text, 'CN¥48.00');
     assert.match(saleOrder[7].text, /Edit/);
     assert.match(saleOrder[7].text, /Delete/);
+    assert.equal(await page.$('[data-id="sale-sw"] .arrow'), null);
+    await page.setViewport({ width: 390, height: 844, isMobile: true, hasTouch: true, deviceScaleFactor: 2 });
+    await page.evaluate(() => {
+      const scroller = document.getElementById('main');
+      const card = document.querySelector('[data-id="sale-sw"]');
+      const origin = scroller.getBoundingClientRect().top;
+      scroller.scrollTop = Math.max(0, card.getBoundingClientRect().top - origin + scroller.scrollTop - 12);
+    });
+    await clipShot(page, '[data-id="sale-sw"]', `${REPORTS}/sell-no-arrow.png`, 12);
 
     await go(page, '#home', '#month-title');
     await page.setViewport({ width: 390, height: 844, isMobile: true, hasTouch: true, deviceScaleFactor: 2 });
