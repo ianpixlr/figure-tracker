@@ -1844,6 +1844,148 @@ async function main() {
       await page.screenshot({ path: `${REPORTS}/two-tone-sell-${mode}.png` });
     }
 
+    await page.setViewport({ width: 390, height: 844, isMobile: true, hasTouch: true, deviceScaleFactor: 2 });
+    await page.evaluate(() => {
+      localStorage.setItem('figure-cap.theme', 'light');
+      document.documentElement.dataset.mode = 'light';
+      document.documentElement.dataset.theme = 'light';
+      localStorage.setItem('figure-cap.v1', JSON.stringify({
+        settings: { monthlyCap: 2000, rollover: false, overspendPayback: true, trackingStart: '2026-09', syncUrl: '' },
+        purchases: [
+          {
+            id: 'asuka',
+            name: 'Asuka',
+            boughtAs: 'preorder',
+            preorderStatus: 'deposit paid',
+            status: 'preordered',
+            figureType: '1-6',
+            series: 'Evangelion',
+            date: '2026-09-04',
+            price: 1350,
+            originalAmount: 1350,
+            currency: 'MYR',
+            fxRate: 1,
+            estFullPrice: 1350,
+            estFullOriginalAmount: 1350,
+            estFullCurrency: 'MYR',
+            estFullFxRate: 1,
+            estFullFxDate: '2026-09-04',
+            depositAmountRm: 475,
+            depositOriginalAmount: 475,
+            depositCurrency: 'MYR',
+            depositFxRate: 1,
+            depositFxDate: '2026-09-04',
+            depositDate: '2026-09-04',
+            balanceDueRm: 875,
+            createdAt: '2026-09-04T00:00:00.000Z',
+            updatedAt: '2026-09-04T00:00:00.000Z'
+          },
+          {
+            id: 'rei',
+            name: 'Rei',
+            boughtAs: 'preorder',
+            preorderStatus: 'fully paid',
+            status: 'received',
+            figureType: '1-12',
+            series: 'Evangelion',
+            date: '2026-09-12',
+            price: 1000,
+            originalAmount: 1000,
+            currency: 'MYR',
+            fxRate: 1,
+            estFullPrice: 1000,
+            estFullOriginalAmount: 1000,
+            estFullCurrency: 'MYR',
+            estFullFxRate: 1,
+            estFullFxDate: '2026-09-12',
+            depositAmountRm: 200,
+            depositOriginalAmount: 200,
+            depositCurrency: 'MYR',
+            depositFxRate: 1,
+            depositFxDate: '2026-09-12',
+            depositDate: '2026-09-12',
+            balancePaidRm: 800,
+            balancePaidOriginalAmount: 800,
+            balancePaidCurrency: 'MYR',
+            balancePaidFxRate: 1,
+            balancePaidFxDate: '2026-10-08',
+            balancePaidDate: '2026-10-08',
+            balanceDueRm: 0,
+            finalTotalRm: 1000,
+            createdAt: '2026-09-12T00:00:00.000Z',
+            updatedAt: '2026-10-08T00:00:00.000Z'
+          },
+          {
+            id: 'prize',
+            name: 'Prize',
+            boughtAs: 'purchased',
+            status: 'received',
+            figureType: 'other',
+            date: '2026-10-02',
+            price: 40,
+            originalAmount: 40,
+            currency: 'MYR',
+            fxRate: 1,
+            createdAt: '2026-10-02T00:00:00.000Z',
+            updatedAt: '2026-10-02T00:00:00.000Z'
+          }
+        ],
+        wishlist: [],
+        forSale: []
+      }));
+      window.__figureCap.setNow('2026-10-26T04:00:00Z');
+      location.hash = '#entries';
+    });
+    await go(page, '#entries', '.month-group');
+    const paidTotals = await page.evaluate(() => {
+      const header = (label) => {
+        const heading = [...document.querySelectorAll('.month-group h3')].find((el) => el.textContent.includes(label));
+        return heading?.parentElement.querySelector('p')?.textContent.trim() || '';
+      };
+      const chart = (label) => {
+        const row = [...document.querySelectorAll('.chart-row')].find((el) => (
+          el.querySelector('.chart-top span')?.textContent.startsWith(label)
+        ));
+        return row?.querySelector('.chart-top span:last-child')?.textContent.trim() || '';
+      };
+      const byType = [...document.querySelectorAll('#category-totals [data-stat]')].map((el) => el.textContent.replace(/\s+/g, ' ').trim());
+      return {
+        septemberHeader: header('September'),
+        septemberChart: chart('Sep'),
+        octoberHeader: header('October'),
+        octoberChart: chart('Oct'),
+        byType,
+        openNote: [...document.querySelectorAll('.money-note')].some((el) => el.textContent.includes('Balance due')),
+        paidNote: [...document.querySelectorAll('.tag')].some((el) => el.textContent.trim() === 'Fully paid')
+      };
+    });
+    assert.equal(paidTotals.septemberHeader, 'RM 675.00');
+    assert.equal(paidTotals.septemberChart, 'RM 675.00');
+    assert.equal(paidTotals.octoberHeader, 'RM 840.00');
+    assert.equal(paidTotals.octoberChart, 'RM 840.00');
+    assert.equal(paidTotals.openNote, true);
+    assert.equal(paidTotals.paidNote, true);
+    assert.ok(paidTotals.byType.some((row) => row.includes('1/6') && row.includes('RM 475.00')));
+    assert.ok(paidTotals.byType.some((row) => row.includes('1/12') && row.includes('RM 1,000.00')));
+    await page.evaluate(() => {
+      const scroller = document.getElementById('main');
+      const header = [...document.querySelectorAll('.month-group h3')].find((el) => el.textContent.includes('September'));
+      const origin = scroller.getBoundingClientRect().top;
+      scroller.scrollTop = Math.max(0, header.getBoundingClientRect().top - origin + scroller.scrollTop - 8);
+    });
+    await page.screenshot({ path: `${REPORTS}/paid-totals-log.png` });
+    await go(page, '#home', '#ytd-value');
+    assert.equal(await text(page, '#spent-value'), 'RM 840.00');
+    assert.equal(await text(page, '#ytd-value'), 'RM 1,515.00');
+    assert.equal(await text(page, '#balances-card .block-value'), 'RM 875.00');
+    await page.evaluate(() => {
+      const scroller = document.getElementById('main');
+      const card = document.getElementById('balances-card');
+      const origin = scroller.getBoundingClientRect().top;
+      scroller.scrollTop = Math.max(0, card.getBoundingClientRect().top - origin + scroller.scrollTop - 8);
+    });
+    await page.screenshot({ path: `${REPORTS}/paid-totals-home.png` });
+
     const sw = await page.evaluate(async () => {
       const reg = await navigator.serviceWorker.ready;
       return Boolean(reg.active);

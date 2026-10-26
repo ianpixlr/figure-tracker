@@ -1,5 +1,6 @@
 // Purchase filters, category totals, and the latest price check for a sale.
 
+import { capPayments } from './budget.js';
 import { fromCents, parseMoney, toCents } from './money.js';
 import { isYMD } from './time.js';
 
@@ -171,13 +172,22 @@ export function filterPurchases(purchases, filters = {}) {
   });
 }
 
-export function categoryTotals(purchases) {
+// Money actually paid on these purchases. A year or month keeps each payment
+// in the month it was paid, so an October balance is not September spend.
+export function categoryTotals(purchases, range = {}) {
+  const year = String(range.year || '');
+  const month = String(range.month || '');
   const map = new Map();
   for (const purchase of purchases) {
     const key = purchase.figureType || '';
     const row = map.get(key) || { figureType: key, count: 0, cents: 0 };
     row.count += 1;
-    row.cents += toCents(figureAmount(purchase)) ?? 0;
+    for (const payment of capPayments(purchase)) {
+      if (!isYMD(payment.date)) continue;
+      if (year && payment.date.slice(0, 4) !== year) continue;
+      if (month && payment.date.slice(5, 7) !== month) continue;
+      row.cents += toCents(payment.amount) ?? 0;
+    }
     map.set(key, row);
   }
   return [...map.values()]

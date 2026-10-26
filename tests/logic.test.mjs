@@ -12,6 +12,7 @@ import {
   homeModel,
   monthSnapshot,
   monthSpent,
+  yearBreakdown,
   planModel,
   sortWishlist,
   wishlistModel,
@@ -148,6 +149,107 @@ test('a pre-order deposit and balance count in the months they were paid', () =>
   assert.equal(monthSpent([split], '2026-11'), 120);
   assert.equal(monthSpent([split], '2026-09'), 0);
   assert.equal(yearSpent([split], '2026'), 170);
+});
+
+test('spend totals count a deposit and a balance in the months they were paid', () => {
+  const open = {
+    id: 'asuka',
+    name: 'Asuka',
+    boughtAs: 'preorder',
+    preorderStatus: 'deposit paid',
+    figureType: '1-6',
+    date: '2026-09-04',
+    price: 1350,
+    estFullPrice: 1350,
+    depositDate: '2026-09-04',
+    depositAmountRm: 475,
+    balanceDueRm: 875
+  };
+  const paid = {
+    id: 'rei',
+    name: 'Rei',
+    boughtAs: 'preorder',
+    preorderStatus: 'fully paid',
+    figureType: '1-12',
+    date: '2026-09-12',
+    price: 1000,
+    estFullPrice: 1000,
+    depositDate: '2026-09-12',
+    depositAmountRm: 200,
+    balancePaidDate: '2026-10-08',
+    balancePaidRm: 800,
+    finalTotalRm: 1000
+  };
+  const bought = {
+    id: 'prize',
+    name: 'Prize',
+    boughtAs: 'purchased',
+    figureType: 'other',
+    date: '2026-10-02',
+    price: 40
+  };
+  const purchases = [open, paid, bought];
+  const base = settings({ monthlyCap: 2000, trackingStart: '2026-09' });
+  const data = { settings: base, purchases, wishlist: [] };
+  const when = new Date('2026-10-26T04:00:00Z');
+
+  assert.equal(monthSpent(purchases, '2026-09'), 675);
+  assert.equal(monthSpent(purchases, '2026-10'), 840);
+  assert.equal(monthSpent(purchases, '2026-11'), 0);
+  assert.equal(yearSpent(purchases, '2026'), 1515);
+
+  const history = historyModel(data, when);
+  for (const row of history.charts) {
+    assert.equal(row.spent, monthSpent(purchases, row.ym));
+  }
+  assert.equal(history.groups.find((group) => group.ym === '2026-09').spent, 675);
+  assert.equal(history.groups.find((group) => group.ym === '2026-10').spent, 840);
+
+  const september = monthSnapshot(base, purchases, '2026-09');
+  assert.equal(september.spent, 675);
+  assert.equal(september.room, 1325);
+  const home = homeModel(data, when);
+  assert.equal(home.month.spent, 840);
+  assert.equal(home.ytd, 1515);
+  assert.deepEqual(home.balances, { count: 1, total: 875 });
+  assert.deepEqual(home.breakdown.types, [
+    { figureType: '1-12', total: 1000 },
+    { figureType: '1-6', total: 475 }
+  ]);
+  assert.equal(home.breakdown.count, 3);
+
+  const nextYear = {
+    ...paid,
+    balancePaidDate: '2027-01-04'
+  };
+  assert.equal(yearSpent([open, nextYear, bought], '2026'), 715);
+  assert.equal(yearSpent([open, nextYear, bought], '2027'), 800);
+  assert.deepEqual(yearBreakdown([open, nextYear], '2026').types, [
+    { figureType: '1-6', total: 475 },
+    { figureType: '1-12', total: 200 }
+  ]);
+  assert.equal(yearBreakdown([open, nextYear], '2027').types[0].total, 800);
+  assert.equal(yearBreakdown([nextYear], '2027').count, 1);
+
+  const allTypes = categoryTotals(purchases);
+  assert.equal(allTypes.find((row) => row.figureType === '1-6').total, 475);
+  assert.equal(allTypes.find((row) => row.figureType === '1-12').total, 1000);
+  assert.equal(allTypes.find((row) => row.figureType === 'other').total, 40);
+
+  const septemberTypes = categoryTotals(
+    filterPurchases(purchases, { year: '2026', month: '09' }),
+    { year: '2026', month: '09' }
+  );
+  assert.equal(septemberTypes.find((row) => row.figureType === '1-12').total, 200);
+  assert.equal(septemberTypes.find((row) => row.figureType === '1-6').total, 475);
+  assert.equal(septemberTypes.find((row) => row.figureType === 'other'), undefined);
+
+  const octoberTypes = categoryTotals(
+    filterPurchases(purchases, { year: '2026', month: '10' }),
+    { year: '2026', month: '10' }
+  );
+  assert.equal(octoberTypes.length, 1);
+  assert.equal(octoberTypes[0].total, 40);
 });
 
 test('rollover adds last month leftover', () => {
