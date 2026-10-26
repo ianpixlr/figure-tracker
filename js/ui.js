@@ -116,6 +116,8 @@ let saving = false;
 
 export function start() {
   bindTheme();
+  document.addEventListener('pointerdown', onConditionPointerDown, true);
+  document.addEventListener('click', onConditionClick, true);
   document.addEventListener('click', onClick);
   document.addEventListener('submit', onSubmit);
   document.addEventListener('input', onInput);
@@ -418,6 +420,40 @@ function editPurchaseView(data, id, today) {
   return purchaseForm(purchase, today, data.settings.categories);
 }
 
+function typingAttrs(capitalize) {
+  return `autocomplete="off" autocorrect="off" autocapitalize="${capitalize}" spellcheck="false"`;
+}
+
+function suggestionValues(purchases, key) {
+  const grouped = new Map();
+  for (const purchase of purchases) {
+    const label = String(purchase?.[key] || '').trim();
+    if (!label) continue;
+    const id = label.toLowerCase();
+    const stamp = String(purchase.updatedAt || purchase.createdAt || purchase.date || '');
+    const current = grouped.get(id);
+    if (!current) {
+      grouped.set(id, { label, count: 1, stamp });
+      continue;
+    }
+    current.count += 1;
+    if (stamp >= current.stamp) {
+      current.stamp = stamp;
+      current.label = label;
+    }
+  }
+  return [...grouped.values()]
+    .sort((a, b) => b.count - a.count || (a.stamp < b.stamp ? 1 : a.stamp > b.stamp ? -1 : a.label.localeCompare(b.label)))
+    .map((entry) => entry.label);
+}
+
+function suggestionList(key) {
+  const loaded = currentData();
+  const purchases = loaded.corrupt ? [] : (loaded.data.purchases || []);
+  const options = suggestionValues(purchases, key).map((label) => `<option value="${esc(label)}"></option>`).join('');
+  return `<datalist id="${esc(key)}-list">${options}</datalist>`;
+}
+
 function purchaseForm(purchase, today, categories = []) {
   const editing = Boolean(purchase);
   const value = purchase || {
@@ -427,7 +463,7 @@ function purchaseForm(purchase, today, categories = []) {
   };
   const preorder = (value.boughtAs || 'purchased') === 'preorder';
   const showPay = Boolean(purchase && purchase.balancePaidRm != null);
-  const openMore = Boolean(value.series || value.brand || value.figureType || value.condition || value.shop || value.notes);
+  const openMore = Boolean(value.shop || value.notes);
   const canPay = editing && preorder && purchase.preorderStatus === 'deposit paid';
   return `
     <section>
@@ -435,9 +471,7 @@ function purchaseForm(purchase, today, categories = []) {
       <form id="${editing ? 'edit-form' : 'log-form'}" ${editing ? `data-id="${esc(purchase.id)}"` : ''} novalidate>
         <div class="group">
           <div class="row">
-            <label class="field" data-edge for="field-name">Figure
-              <input id="field-name" name="name" maxlength="80" autocomplete="off" autocapitalize="words" value="${esc(value.name)}" required>
-            </label>
+            ${typePicker(value.figureType || '', categories)}
           </div>
           <div class="row">
             <p class="kicker" data-edge>Order type</p>
@@ -446,6 +480,23 @@ function purchaseForm(purchase, today, categories = []) {
           </div>
         </div>
         <div class="group">
+          <div class="row">
+            <label class="field" data-edge for="field-brand">Brand
+              <input id="field-brand" name="brand" maxlength="80" list="brand-list" ${typingAttrs('words')} value="${esc(value.brand || '')}">
+              ${suggestionList('brand')}
+            </label>
+          </div>
+          <div class="row">
+            <label class="field" data-edge for="field-series">Series
+              <input id="field-series" name="series" maxlength="80" list="series-list" ${typingAttrs('words')} value="${esc(value.series || '')}">
+              ${suggestionList('series')}
+            </label>
+          </div>
+          <div class="row">
+            <label class="field" data-edge for="field-name">Figure name
+              <input id="field-name" name="name" maxlength="80" ${typingAttrs('words')} value="${esc(value.name)}" required>
+            </label>
+          </div>
           <div class="row" data-standard ${preorder ? 'hidden' : ''}>
             ${moneyFields({
               label: 'Price',
@@ -487,6 +538,9 @@ function purchaseForm(purchase, today, categories = []) {
               <input id="field-date" name="date" type="date" value="${esc(value.date)}" required>
             </label>
           </div>
+          <div class="row">
+            ${conditionChips(value.condition || '')}
+          </div>
         </div>
         <p class="cap-note" data-cap-note></p>
         <div data-pay-box ${showPay ? '' : 'hidden'}>
@@ -516,26 +570,17 @@ function purchaseForm(purchase, today, categories = []) {
           <summary data-edge>
             <span class="more-copy">
               <strong>More details</strong>
-              <span class="meta">Series, brand, type, condition, shop, notes</span>
+              <span class="meta">Shop, notes</span>
             </span>
             <svg class="chevron" viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="m6 9 6 6 6-6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"></path></svg>
           </summary>
           <div class="more-body">
-            <label class="field" data-edge for="field-series">Series
-              <input id="field-series" name="series" maxlength="80" autocomplete="off" value="${esc(value.series || '')}">
-            </label>
-            <label class="field" data-edge for="field-brand">Brand
-              <input id="field-brand" name="brand" maxlength="80" autocomplete="off" value="${esc(value.brand || '')}">
-            </label>
-            ${typePicker(value.figureType || '', categories)}
-            <label class="field" data-edge for="field-condition">Condition
-              <select id="field-condition" name="condition">${selectOptions(PURCHASE_CONDITIONS, value.condition || '')}</select>
-            </label>
             <label class="field" data-edge for="field-shop">Shop
-              <input id="field-shop" name="shop" maxlength="80" autocomplete="off" value="${esc(value.shop || '')}">
+              <input id="field-shop" name="shop" maxlength="80" list="shop-list" ${typingAttrs('words')} value="${esc(value.shop || '')}">
+              ${suggestionList('shop')}
             </label>
             <label class="field" data-edge for="field-notes">Notes
-              <textarea id="field-notes" name="notes" maxlength="280" rows="3">${esc(value.notes || '')}</textarea>
+              <textarea id="field-notes" name="notes" maxlength="280" rows="3" ${typingAttrs('sentences')}>${esc(value.notes || '')}</textarea>
             </label>
           </div>
         </details>
@@ -1151,7 +1196,7 @@ function moneyFields({
     <div class="money" data-edge data-money data-prefix="${esc(prefix)}" ${historical ? 'data-historical="true"' : ''} data-date-field="${esc(dateField)}">
       <div class="money-row">
         <label class="field" for="${esc(amountId)}">${esc(label)}
-          <input id="${esc(amountId)}" name="${names.amount}" inputmode="decimal" autocomplete="off" placeholder="0.00" value="${esc(amount)}">
+          <input id="${esc(amountId)}" name="${names.amount}" inputmode="decimal" enterkeyhint="done" autocomplete="off" placeholder="0.00" value="${esc(amount)}">
         </label>
         <label class="field" for="${esc(amountId)}-currency">Currency
           <select id="${esc(amountId)}-currency" name="${names.currency}">${currencyOptions(currency)}</select>
@@ -1166,7 +1211,7 @@ function moneyFields({
         </span>
       </label>
       <label class="field" for="${esc(amountId)}-rm" data-fx-rm ${override ? '' : 'hidden'}>Statement amount (RM)
-        <input id="${esc(amountId)}-rm" name="${names.rm}" inputmode="decimal" autocomplete="off" placeholder="0.00" value="${esc(amountRm)}">
+        <input id="${esc(amountId)}-rm" name="${names.rm}" inputmode="decimal" enterkeyhint="done" autocomplete="off" placeholder="0.00" value="${esc(amountRm)}">
       </label>
     </div>
   `;
@@ -1178,10 +1223,6 @@ function currencyOptions(selected) {
   const extras = OTHER_CURRENCIES.filter((code) => !QUICK_CURRENCIES.includes(code));
   const known = QUICK_CURRENCIES.includes(current) || extras.includes(current);
   return `<optgroup label="Common">${QUICK_CURRENCIES.map(option).join('')}</optgroup><optgroup label="Other">${extras.map(option).join('')}${known ? '' : option(current)}</optgroup>`;
-}
-
-function selectOptions(options, selected) {
-  return options.map((option) => `<option value="${esc(option.value)}" ${option.value === selected ? 'selected' : ''}>${esc(option.label)}</option>`).join('');
 }
 
 function typeOptions(categories = []) {
@@ -1216,12 +1257,55 @@ function typePicker(selected, categories = []) {
         <button class="chip" type="button" data-action="new-category">+ New</button>
       </div>
       <div class="new-category" data-new-category hidden>
-        <input id="field-new-category" name="newCategory" maxlength="20" autocomplete="off" placeholder="Category" aria-label="New category">
+        <input id="field-new-category" name="newCategory" maxlength="20" ${typingAttrs('words')} placeholder="Category" aria-label="New category">
         <button class="btn btn-primary" type="button" data-action="add-category">Add</button>
         <p class="category-error" data-category-error role="alert" hidden></p>
       </div>
     </div>
   `;
+}
+
+function conditionChips(selected) {
+  const options = [
+    { value: 'MISB', label: 'MISB' },
+    { value: 'MIB', label: 'MIB' },
+    { value: 'BIB', label: 'BIB' },
+    { value: 'Loose', label: 'Loose' }
+  ];
+  if (selected === 'Other') options.push({ value: 'Other', label: 'Other' });
+  return `
+    <p class="kicker" data-edge>Condition</p>
+    <div class="chips" data-edge data-condition role="radiogroup" aria-label="Condition">${options.map((option) => `
+      <label class="chip">
+        <input type="radio" name="condition" value="${esc(option.value)}" ${option.value === selected ? 'checked' : ''}>
+        <span>${esc(option.label)}</span>
+      </label>
+    `).join('')}</div>`;
+}
+
+function conditionRadio(event) {
+  const target = event.target;
+  if (!(target instanceof Element)) return null;
+  const label = target.closest('[data-condition] label.chip');
+  if (!label || !label.closest('#log-form, #edit-form')) return null;
+  return label.querySelector('input[type="radio"]');
+}
+
+function onConditionPointerDown(event) {
+  const input = conditionRadio(event);
+  if (!input) return;
+  input.dataset.wasChecked = input.checked ? 'true' : 'false';
+}
+
+function onConditionClick(event) {
+  const input = conditionRadio(event);
+  if (!input || event.target === input) return;
+  const was = input.dataset.wasChecked;
+  const already = was === 'true' || (was !== 'false' && input.checked);
+  delete input.dataset.wasChecked;
+  if (!already) return;
+  event.preventDefault();
+  input.checked = false;
 }
 
 function chips(name, options, selected, label = name) {

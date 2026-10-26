@@ -300,13 +300,9 @@ async function assertChipRemove(page, mode) {
   }
   assert.equal(paint.movie.selected, true);
   assert.equal(paint.anime.selected, false);
-  if (mode === 'light') {
-    assert.equal(paint.movie.color, 'rgb(255, 255, 255)');
-    assert.equal(paint.anime.color, 'rgb(92, 92, 102)');
-  } else {
-    assert.equal(paint.movie.color, 'rgb(20, 20, 20)');
-    assert.equal(paint.anime.color, 'rgb(183, 183, 192)');
-  }
+  assert.equal(paint.movie.color, 'rgb(22, 22, 22)');
+  if (mode === 'light') assert.equal(paint.anime.color, 'rgb(92, 92, 102)');
+  else assert.equal(paint.anime.color, 'rgb(183, 183, 192)');
 }
 
 async function press(page, selector) {
@@ -367,13 +363,26 @@ async function assertSettingsLayout(page) {
 
 async function showTypeExtras(page) {
   const opened = await page.evaluate(() => {
-    const more = document.querySelector('details.more');
-    if (!more) return false;
-    more.open = true;
-    more.querySelector('[data-action="new-category"]')?.click();
+    const button = document.querySelector('[data-action="new-category"]');
+    if (!button) return false;
+    button.click();
     return true;
   });
   if (opened) await page.waitForSelector('[data-new-category]:not([hidden]) input');
+}
+
+async function conditionValue(page) {
+  return page.evaluate(() => document.querySelector('[data-condition] input:checked')?.value || '');
+}
+
+async function clickCondition(page, label) {
+  const handle = await page.evaluateHandle((name) => [...document.querySelectorAll('[data-condition] label.chip')]
+    .find((el) => (el.querySelector('span')?.textContent || '').trim() === name) || null, label);
+  const el = handle.asElement();
+  assert.ok(el, `missing condition ${label}`);
+  await el.evaluate((node) => node.scrollIntoView({ block: 'center' }));
+  await el.click();
+  await handle.dispose();
 }
 
 async function clickLabel(page, label) {
@@ -1044,7 +1053,276 @@ async function main() {
     await assertNoOverflow(page);
     await assertTypeScale(page);
     await assertAlignment(page);
+    await assertSingleDividers(page);
     await shot(page, 'log-add');
+
+    const formShape = await page.evaluate(() => {
+      const read = (id) => {
+        const el = document.getElementById(id);
+        return {
+          autocorrect: el.getAttribute('autocorrect'),
+          autocapitalize: el.getAttribute('autocapitalize'),
+          spellcheck: el.getAttribute('spellcheck'),
+          autocomplete: el.getAttribute('autocomplete'),
+          inputmode: el.getAttribute('inputmode'),
+          enterkeyhint: el.getAttribute('enterkeyhint'),
+          list: el.getAttribute('list'),
+          type: el.getAttribute('type')
+        };
+      };
+      const after = Node.DOCUMENT_POSITION_FOLLOWING;
+      const follows = (a, b) => Boolean(a && b && (a.compareDocumentPosition(b) & after));
+      const chain = [
+        document.querySelector('[data-type-chips]'),
+        document.querySelector('#log-form [aria-label="Order type"]'),
+        document.getElementById('field-brand'),
+        document.getElementById('field-series'),
+        document.getElementById('field-name'),
+        document.getElementById('field-price'),
+        document.getElementById('field-date'),
+        document.querySelector('[data-condition]')
+      ];
+      const more = document.querySelector('#log-form details.more');
+      return {
+        ordered: chain.every((node, index) => index === 0 || follows(chain[index - 1], node)),
+        name: read('field-name'),
+        brand: read('field-brand'),
+        series: read('field-series'),
+        shop: read('field-shop'),
+        notes: read('field-notes'),
+        fresh: read('field-new-category'),
+        price: read('field-price'),
+        est: read('field-est'),
+        deposit: read('field-deposit'),
+        balance: read('field-balance'),
+        priceRm: read('field-price-rm'),
+        date: read('field-date'),
+        conditions: [...document.querySelectorAll('[data-condition] input')].map((el) => el.value),
+        moreText: more.querySelector('.meta').textContent.trim(),
+        moreOpen: more.open,
+        brandInMore: Boolean(more.querySelector('#field-brand, #field-series, [data-type-chips], [data-condition]')),
+        shopInMore: Boolean(more.querySelector('#field-shop')),
+        notesInMore: Boolean(more.querySelector('#field-notes')),
+        conditionSelect: Boolean(document.querySelector('select[name="condition"]'))
+      };
+    });
+    assert.equal(formShape.ordered, true);
+    for (const field of [formShape.name, formShape.brand, formShape.series, formShape.shop, formShape.fresh]) {
+      assert.equal(field.autocorrect, 'off');
+      assert.equal(field.autocapitalize, 'words');
+      assert.equal(field.spellcheck, 'false');
+      assert.equal(field.autocomplete, 'off');
+    }
+    assert.equal(formShape.notes.autocorrect, 'off');
+    assert.equal(formShape.notes.autocapitalize, 'sentences');
+    assert.equal(formShape.notes.spellcheck, 'false');
+    assert.equal(formShape.notes.autocomplete, 'off');
+    assert.equal(formShape.brand.list, 'brand-list');
+    assert.equal(formShape.series.list, 'series-list');
+    assert.equal(formShape.shop.list, 'shop-list');
+    for (const money of [formShape.price, formShape.est, formShape.deposit, formShape.balance, formShape.priceRm]) {
+      assert.equal(money.inputmode, 'decimal');
+      assert.equal(money.enterkeyhint, 'done');
+    }
+    assert.equal(formShape.date.type, 'date');
+    assert.equal(formShape.date.inputmode, null);
+    assert.deepEqual(formShape.conditions, ['MISB', 'MIB', 'BIB', 'Loose']);
+    assert.equal(formShape.moreText, 'Shop, notes');
+    assert.equal(formShape.moreOpen, false);
+    assert.equal(formShape.brandInMore, false);
+    assert.equal(formShape.shopInMore, true);
+    assert.equal(formShape.notesInMore, true);
+    assert.equal(formShape.conditionSelect, false);
+    await page.evaluate(() => { document.getElementById('main').scrollTop = 0; });
+    await page.screenshot({ path: `${REPORTS}/log-add-top.png` });
+    await page.evaluate(() => {
+      const scroller = document.getElementById('main');
+      const target = document.getElementById('field-date');
+      const origin = scroller.getBoundingClientRect().top;
+      const top = target.getBoundingClientRect().top - origin + scroller.scrollTop;
+      scroller.scrollTop = Math.max(0, top - 16);
+    });
+    await page.screenshot({ path: `${REPORTS}/log-add-scrolled.png` });
+    await page.evaluate(() => { document.getElementById('main').scrollTop = 0; });
+
+    await clickCondition(page, 'MISB');
+    assert.equal(await conditionValue(page), 'MISB');
+    const chipPaint = await page.evaluate(() => {
+      const read = (el) => {
+        const style = getComputedStyle(el);
+        return { bg: style.backgroundColor, color: style.color };
+      };
+      return {
+        type: read(document.querySelector('[data-type-chips] input:checked').closest('.chip')),
+        misb: read(document.querySelector('[data-condition] input[value="MISB"]').closest('.chip')),
+        loose: read(document.querySelector('[data-condition] input[value="Loose"]').closest('.chip')),
+        order: read(document.querySelector('input[name="boughtAs"]:checked').closest('.chip'))
+      };
+    });
+    assert.equal(chipPaint.type.bg, 'rgb(255, 228, 92)');
+    assert.equal(chipPaint.type.color, 'rgb(22, 22, 22)');
+    assert.equal(chipPaint.misb.bg, 'rgb(255, 228, 92)');
+    assert.equal(chipPaint.misb.color, 'rgb(22, 22, 22)');
+    assert.notEqual(chipPaint.loose.bg, 'rgb(255, 228, 92)');
+    assert.notEqual(chipPaint.order.bg, 'rgb(255, 228, 92)');
+    await clickCondition(page, 'MISB');
+    assert.equal(await conditionValue(page), '');
+    await page.$eval('[data-condition] input[value="MIB"]', (el) => el.closest('label').click());
+    assert.equal(await conditionValue(page), 'MIB');
+    await page.$eval('[data-condition] input[value="MIB"]', (el) => el.closest('label').click());
+    assert.equal(await conditionValue(page), '');
+    await clickCondition(page, 'Loose');
+    assert.equal(await conditionValue(page), 'Loose');
+    await clickCondition(page, 'BIB');
+    assert.equal(await conditionValue(page), 'BIB');
+    await clickCondition(page, 'BIB');
+    assert.equal(await conditionValue(page), '');
+
+    const formSnapshot = await page.evaluate(() => localStorage.getItem('figure-cap.v1'));
+    await page.evaluate(() => {
+      const data = JSON.parse(localStorage.getItem('figure-cap.v1'));
+      const row = (extra) => ({
+        price: 20,
+        originalAmount: 20,
+        currency: 'MYR',
+        fxRate: 1,
+        boughtAs: 'purchased',
+        status: 'received',
+        figureType: '',
+        condition: '',
+        notes: '',
+        ...extra
+      });
+      data.purchases = [
+        row({
+          id: 'smile-old',
+          name: 'Older smile',
+          brand: 'good smile',
+          series: 'eva',
+          shop: 'AmiAmi',
+          date: '2026-01-02',
+          createdAt: '2026-01-02T00:00:00.000Z',
+          updatedAt: '2026-01-02T00:00:00.000Z'
+        }),
+        row({
+          id: 'smile-new',
+          name: 'Newer smile',
+          brand: 'Good Smile',
+          series: 'Eva',
+          shop: 'Hobby Search',
+          condition: 'MISB',
+          date: '2026-03-02',
+          createdAt: '2026-03-02T00:00:00.000Z',
+          updatedAt: '2026-03-02T00:00:00.000Z'
+        }),
+        row({
+          id: 'smile-mid',
+          name: 'Mid smile',
+          brand: 'Good Smile',
+          series: 'EVA',
+          shop: 'AmiAmi',
+          date: '2026-02-02',
+          createdAt: '2026-02-02T00:00:00.000Z',
+          updatedAt: '2026-02-02T00:00:00.000Z'
+        }),
+        row({
+          id: 'bandai',
+          name: 'Gundam',
+          brand: 'Bandai',
+          series: 'Gundam',
+          shop: 'AmiAmi',
+          date: '2026-06-02',
+          createdAt: '2026-06-02T00:00:00.000Z',
+          updatedAt: '2026-06-02T00:00:00.000Z'
+        }),
+        row({
+          id: 'koto',
+          name: 'Frame',
+          brand: 'Kotobukiya',
+          series: 'Frame Arms',
+          shop: 'HLJ',
+          date: '2026-05-02',
+          createdAt: '2026-05-02T00:00:00.000Z',
+          updatedAt: '2026-05-02T00:00:00.000Z'
+        }),
+        row({
+          id: 'cond-other',
+          name: 'Boxed extra',
+          brand: 'Alter',
+          series: 'Fate',
+          shop: 'Nippon',
+          notes: 'keep me',
+          condition: 'Other',
+          figureType: '1-6',
+          price: 30,
+          originalAmount: 30,
+          date: '2026-04-04',
+          createdAt: '2026-04-04T00:00:00.000Z',
+          updatedAt: '2026-04-04T00:00:00.000Z'
+        })
+      ];
+      localStorage.setItem('figure-cap.v1', JSON.stringify(data));
+    });
+    await go(page, '#home', '#month-title');
+    await go(page, '#log', '#brand-list');
+    const lists = await page.evaluate(() => ({
+      brand: [...document.querySelectorAll('#brand-list option')].map((el) => el.value),
+      series: [...document.querySelectorAll('#series-list option')].map((el) => el.value),
+      shop: [...document.querySelectorAll('#shop-list option')].map((el) => el.value)
+    }));
+    assert.deepEqual(lists.brand, ['Good Smile', 'Bandai', 'Kotobukiya', 'Alter']);
+    assert.deepEqual(lists.series, ['Eva', 'Gundam', 'Frame Arms', 'Fate']);
+    assert.deepEqual(lists.shop, ['AmiAmi', 'HLJ', 'Nippon', 'Hobby Search']);
+    await go(page, '#edit/smile-new', '#edit-form');
+    assert.deepEqual(await page.$$eval('[data-condition] input', (els) => els.map((el) => el.value)), ['MISB', 'MIB', 'BIB', 'Loose']);
+    assert.equal(await conditionValue(page), 'MISB');
+    assert.equal(await page.$eval('#field-brand', (el) => el.value), 'Good Smile');
+    assert.equal(await page.$eval('#field-series', (el) => el.value), 'Eva');
+    assert.equal(await page.$eval('#field-name', (el) => el.value), 'Newer smile');
+    await go(page, '#edit/cond-other', '#edit-form');
+    assert.deepEqual(await page.$$eval('[data-condition] input', (els) => els.map((el) => el.value)), ['MISB', 'MIB', 'BIB', 'Loose', 'Other']);
+    assert.equal(await conditionValue(page), 'Other');
+    assert.equal(await page.$eval('#field-brand', (el) => el.value), 'Alter');
+    assert.equal(await page.$eval('#field-series', (el) => el.value), 'Fate');
+    assert.equal(await page.$eval('#field-name', (el) => el.value), 'Boxed extra');
+    assert.equal(await page.$eval('#field-price', (el) => el.value), '30');
+    assert.equal(await page.$eval('#field-date', (el) => el.value), '2026-04-04');
+    assert.equal(await page.$eval('input[name="figureType"]:checked', (el) => el.value), '1-6');
+    assert.equal(await page.$eval('details.more', (el) => el.open), true);
+    assert.equal(await page.$eval('#field-shop', (el) => el.value), 'Nippon');
+    assert.equal(await page.$eval('#field-notes', (el) => el.value), 'keep me');
+    await press(page, '#edit-form button[type="submit"]');
+    await page.waitForSelector('#chart');
+    const kept = await page.evaluate(() => {
+      const item = JSON.parse(localStorage.getItem('figure-cap.v1')).purchases.find((row) => row.id === 'cond-other');
+      return {
+        name: item.name,
+        brand: item.brand,
+        series: item.series,
+        shop: item.shop,
+        notes: item.notes,
+        condition: item.condition,
+        figureType: item.figureType,
+        price: item.price,
+        date: item.date,
+        boughtAs: item.boughtAs
+      };
+    });
+    assert.deepEqual(kept, {
+      name: 'Boxed extra',
+      brand: 'Alter',
+      series: 'Fate',
+      shop: 'Nippon',
+      notes: 'keep me',
+      condition: 'Other',
+      figureType: '1-6',
+      price: 30,
+      date: '2026-04-04',
+      boughtAs: 'purchased'
+    });
+    await page.evaluate((saved) => localStorage.setItem('figure-cap.v1', saved), formSnapshot);
+    await go(page, '#home', '#left-value');
+    await go(page, '#log', '#field-name');
 
     await typeInto(page, '#field-name', 'Asuka Langley Soryu Plugsuit Ver. 1/7 Scale');
     await typeInto(page, '#field-price', '80');
@@ -1448,6 +1726,16 @@ async function main() {
 
     await go(page, '#log', '#field-name');
     await clickLabel(page, 'Pre-order');
+    await page.waitForSelector('[data-preorder]:not([hidden]) #field-est');
+    await page.evaluate(() => {
+      const scroller = document.getElementById('main');
+      const target = document.getElementById('field-est');
+      const origin = scroller.getBoundingClientRect().top;
+      const top = target.getBoundingClientRect().top - origin + scroller.scrollTop;
+      scroller.scrollTop = Math.max(0, top - 72);
+    });
+    await page.screenshot({ path: `${REPORTS}/log-add-preorder.png` });
+    await page.evaluate(() => { document.getElementById('main').scrollTop = 0; });
     await typeInto(page, '#field-name', 'Rei');
     await typeInto(page, '#field-est', '200');
     await typeInto(page, '#field-deposit', '50');
@@ -1463,14 +1751,27 @@ async function main() {
     assert.equal(due.nowrap, 'nowrap');
     assert.equal(due.lines, 1);
     const order = await page.evaluate(() => {
-      const name = document.querySelector('#field-name');
-      const bought = [...document.querySelectorAll('.kicker')].find((el) => el.textContent.trim() === 'Order type');
-      const status = [...document.querySelectorAll('#log-form .kicker, #edit-form .kicker')].find((el) => el.textContent.trim() === 'Status');
-      const price = document.querySelector('#field-est');
       const after = Node.DOCUMENT_POSITION_FOLLOWING;
-      return Boolean(name && bought && !status && price)
-        && Boolean(name.compareDocumentPosition(bought) & after)
-        && Boolean(bought.compareDocumentPosition(price) & after);
+      const follows = (a, b) => Boolean(a && b && (a.compareDocumentPosition(b) & after));
+      const chain = [
+        document.querySelector('[data-type-chips]'),
+        document.querySelector('#log-form [aria-label="Order type"]'),
+        document.getElementById('field-brand'),
+        document.getElementById('field-series'),
+        document.getElementById('field-name'),
+        document.getElementById('field-est'),
+        document.getElementById('field-deposit'),
+        document.getElementById('field-date'),
+        document.querySelector('[data-condition]')
+      ];
+      const status = [...document.querySelectorAll('#log-form .kicker')].find((el) => el.textContent.trim() === 'Status');
+      const more = document.querySelector('#log-form details.more');
+      const label = document.querySelector('[data-date-label]')?.textContent.trim();
+      return chain.every((node, index) => index === 0 || follows(chain[index - 1], node))
+        && !status
+        && label === 'Deposit date'
+        && !more.querySelector('#field-brand, #field-series, [data-type-chips]')
+        && more.querySelector('.meta').textContent.trim() === 'Shop, notes';
     });
     assert.equal(order, true);
     await page.select('#field-est-currency', 'JPY');
