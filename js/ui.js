@@ -17,10 +17,10 @@ import {
   BOUGHT_AS_OPTIONS,
   FIGURE_TYPES,
   PURCHASE_CONDITIONS,
-  PURCHASE_STATUSES,
   SALE_CONDITIONS,
   SALE_STATUSES,
   boughtAsLabel,
+  derivedPurchaseStatus,
   carousellSearchUrl,
   categoryTotals,
   distinctValues,
@@ -44,7 +44,7 @@ import {
   moneyToMyr,
   saveFxCache
 } from './fx.js';
-import { formatRM, parseMoney } from './money.js';
+import { formatRM, parseMoney, withAmounts } from './money.js';
 import {
   MAX_FOREIGN,
   MAX_MONEY,
@@ -85,7 +85,6 @@ import {
   formatFullDay,
   formatMonth,
   formatMonthShort,
-  formatToday,
   isYMD,
   now,
   todayStamp,
@@ -93,6 +92,7 @@ import {
 } from './time.js';
 
 const ARROW = '<svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+const SEARCH_ICON = '<svg class="search-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6.5" fill="none" stroke="currentColor" stroke-width="2"></circle><path d="M16 16.5 20.5 21" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"></path></svg>';
 const BACK = '<svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M15 5l-7 7 7 7" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
 const TONES = ['yellow', 'mint', 'lilac', 'coral', 'sky'];
 const MONTHS = [
@@ -141,7 +141,6 @@ export function render() {
   lastRouteKey = routeKey;
 
   const today = todayYMD();
-  document.getElementById('today-line').textContent = formatToday(now());
   const sync = document.getElementById('sync-status');
   if (sync) sync.textContent = syncStatusLabel();
   setNav(route.name);
@@ -274,15 +273,13 @@ function homeView(data) {
   const caption = capCaption(month);
   const width = barWidth(month);
   const latest = latestPurchase(data.purchases);
-  const wish = wishlistModel(data, now());
-  const topWish = wish.items[0];
   const balances = model.balances;
   return `
     <section class="stack">
       <div class="lede">
         <h2 id="month-title">${esc(formatMonth(model.ym))}</h2>
         <p class="hero" id="left-value"><span class="hero-currency">RM</span> <span class="hero-num">${esc(heroAmount(month.room))}</span> <span class="hero-cap">/ ${esc(heroAmount(month.cap))}</span></p>
-        <p class="hero-caption" id="cap-line">${esc(caption)}</p>
+        <p class="hero-caption" id="cap-line">${withAmounts(caption)}</p>
       </div>
       <div>
         <div class="progress-meta">
@@ -324,35 +321,28 @@ function homeView(data) {
         <p class="block-value" id="ytd-value" data-edge>${formatRM(model.ytd)}</p>
         ${breakdownStats(model.breakdown)}
       </article>
-      <article class="block sky">
-        <div class="card-head" data-edge>
-          <div class="tags">${topWish ? `<span class="tag">${esc(topWish.priorityLabel)}</span>` : ''}</div>
-          <a class="arrow" href="#wish" aria-label="Open wishlist">${ARROW}</a>
-        </div>
-        <p class="kicker" data-edge>Wishlist</p>
-        <p class="block-value" data-edge>${formatRM(wish.total)}</p>
-        <p class="meta" data-edge>${topWish ? `${esc(topWish.name)} · ${esc(topWish.fitLabel)}` : (wish.count === 1 ? '1 figure' : `${wish.count} figures`)}</p>
-      </article>
-      ${data.settings.rollover && month.rollover > 0 ? `
-        <article class="block coral">
-          <div class="stats" data-edge>
-            <div data-stat="0"><p class="spec-label">Cap</p><p class="stat-v">${formatRM(data.settings.monthlyCap)}</p></div>
-            <div data-stat="1"><p class="spec-label">Rolled over</p><p class="stat-v">${formatRM(month.rollover)}</p></div>
-          </div>
-        </article>` : ''}
     </section>
   `;
 }
 
 function capCaption(month) {
   const paidBack = month.payback > 0 && month.paybackMonth;
-  if (month.over > 0 && paidBack) {
-    return `RM ${heroAmount(month.over)} over · from ${monthName(month.paybackMonth)}`;
+  const rolled = month.rollover > 0;
+  if (month.over > 0) {
+    const bits = [`RM ${heroAmount(month.over)} over`];
+    if (rolled) bits.push(`RM ${heroAmount(month.rollover)} rolled over`);
+    if (paidBack) bits.push(`RM ${heroAmount(month.payback)} from ${monthName(month.paybackMonth)}`);
+    return bits.join(' · ');
   }
-  if (month.over > 0) return `RM ${heroAmount(month.over)} over`;
   if (paidBack) {
-    return `cap RM ${heroAmount(month.cap)} · RM ${heroAmount(month.payback)} from ${monthName(month.paybackMonth)}`;
+    const bits = [
+      `cap RM ${heroAmount(month.cap)}`,
+      `RM ${heroAmount(month.payback)} from ${monthName(month.paybackMonth)}`
+    ];
+    if (rolled) bits.push(`RM ${heroAmount(month.rollover)} rolled over`);
+    return bits.join(' · ');
   }
+  if (rolled) return `cap RM ${heroAmount(month.cap)} · RM ${heroAmount(month.rollover)} rolled over`;
   return 'left this month';
 }
 
@@ -382,7 +372,7 @@ function latestCard(purchase) {
       </div>
       <p class="kicker" data-edge>Latest purchase</p>
       <h3 data-edge>${esc(purchase.name)}</h3>
-      <p class="meta" data-edge>${bits.map(esc).join(' · ')}</p>
+      <p class="meta" data-edge>${withAmounts(bits.join(' · '))}</p>
     </article>
   `;
 }
@@ -396,7 +386,7 @@ function breakdownStats(breakdown) {
   `);
   cells.push(`
     <div data-stat="${cells.length}">
-      <p class="spec-label">Figures</p>
+      <p class="spec-label">Purchases</p>
       <p class="stat-v">${breakdown.count}</p>
     </div>
   `);
@@ -433,11 +423,11 @@ function editPurchaseView(data, id, today) {
 function purchaseForm(purchase, today) {
   const editing = Boolean(purchase);
   const value = purchase || {
-    name: '', series: '', brand: '', figureType: '', boughtAs: 'new', condition: '',
+    name: '', series: '', brand: '', figureType: '', boughtAs: 'purchased', condition: '',
     originalAmount: '', currency: 'MYR', fxOverridden: false, price: '',
-    date: today, shop: '', status: 'received', notes: ''
+    date: today, shop: '', notes: ''
   };
-  const preorder = (value.boughtAs || 'new') === 'preorder';
+  const preorder = (value.boughtAs || 'purchased') === 'preorder';
   const showPay = Boolean(purchase && purchase.balancePaidRm != null);
   const openMore = Boolean(value.series || value.brand || value.figureType || value.condition || value.shop || value.notes);
   const canPay = editing && preorder && purchase.preorderStatus === 'deposit paid';
@@ -452,13 +442,9 @@ function purchaseForm(purchase, today) {
             </label>
           </div>
           <div class="row">
-            <p class="kicker" data-edge>Bought as</p>
-            ${chips('boughtAs', BOUGHT_AS_OPTIONS, value.boughtAs || 'new')}
+            <p class="kicker" data-edge>Order type</p>
+            ${chips('boughtAs', BOUGHT_AS_OPTIONS, value.boughtAs || 'purchased', 'Order type')}
             <p class="meta" data-edge data-preorder-note ${preorder ? '' : 'hidden'}>The deposit counts in the month you pay it. The balance counts in the month you pay that.</p>
-          </div>
-          <div class="row">
-            <p class="kicker" data-edge>Status</p>
-            ${chips('status', PURCHASE_STATUSES, value.status || 'received')}
           </div>
         </div>
         <div class="group">
@@ -581,7 +567,7 @@ function entriesView(data) {
       <div class="bar" data-state="${snapshot.state}" aria-hidden="true">
         <div class="bar-fill" data-empty="${barWidth(snapshot) === 0}" style="width:${barWidth(snapshot).toFixed(2)}%"></div>
       </div>
-      <p class="meta">Cap ${formatRM(snapshot.cap)}${snapshot.payback > 0 ? ` · ${formatRM(snapshot.payback)} carried from last month` : ''} · ${esc(statusLine(snapshot))}</p>
+      <p class="meta">${withAmounts(`Cap ${formatRM(snapshot.cap)}${snapshot.payback > 0 ? ` · ${formatRM(snapshot.payback)} carried from last month` : ''} · ${statusLine(snapshot)}`)}</p>
     </div>
   `).join('');
   const groups = groupByMonth(filtered);
@@ -589,8 +575,8 @@ function entriesView(data) {
   return `
     <div class="tools">
       <label class="search">
-        <span class="sr">Search</span>
-        <input id="field-search" type="search" placeholder="Search figures" value="${esc(filters.q)}" autocomplete="off">
+        ${SEARCH_ICON}
+        <input id="field-search" type="search" inputmode="search" enterkeyhint="search" placeholder="Search purchases" aria-label="Search purchases" value="${esc(filters.q)}" autocomplete="off" autocapitalize="off" spellcheck="false">
       </label>
       <button class="btn btn-ghost filter-btn" type="button" data-action="open-filters">Filter${active.length ? ` <span class="badge">${active.length}</span>` : ''}</button>
     </div>
@@ -665,11 +651,10 @@ function groupHtml(group, groupIndex) {
 }
 
 function purchaseCard(purchase, index) {
-  const bits = [
-    formatDay(purchase.date),
-    boughtAsLabel(purchase.boughtAs),
-    purchaseStatusLabel(purchase.status)
-  ];
+  const order = boughtAsLabel(purchase.boughtAs);
+  const state = purchaseStatusLabel(purchase.status);
+  const bits = [formatDay(purchase.date), order];
+  if (state !== order) bits.push(state);
   if (purchase.brand) bits.push(purchase.brand);
   if (purchase.series) bits.push(purchase.series);
   const foreign = foreignNote(purchase);
@@ -689,11 +674,11 @@ function purchaseCard(purchase, index) {
       </div>
       <h3 data-edge>${esc(purchase.name)}</h3>
       <p class="block-value" data-edge>${formatRM(figureAmount(purchase))}</p>
-      <p class="meta" data-edge>${bits.map(esc).join(' · ')}</p>
-      ${foreign ? `<p class="meta" data-edge>${esc(foreign)}</p>` : ''}
-      ${preorder ? `<p class="meta" data-edge>${esc(preorder)}</p>` : ''}
+      <p class="meta" data-edge>${withAmounts(bits.join(' · '))}</p>
+      ${foreign ? `<p class="meta" data-edge>${withAmounts(foreign)}</p>` : ''}
+      ${preorder ? `<p class="meta money-note" data-edge>${withAmounts(preorder)}</p>` : ''}
       ${purchase.shop ? `<p class="meta" data-edge>${esc(purchase.shop)}</p>` : ''}
-      ${purchase.notes ? `<p class="note" data-edge>${esc(purchase.notes)}</p>` : ''}
+      ${purchase.notes ? `<p class="note" data-edge>${withAmounts(purchase.notes)}</p>` : ''}
       <div class="btn-row">
         ${pay}
         <button class="btn btn-ghost" type="button" data-action="delete-purchase" data-id="${esc(purchase.id)}">Delete</button>
@@ -768,7 +753,7 @@ function wishList(model) {
       </div>
       <h3 data-edge>${esc(item.name)}</h3>
       <p class="block-value" data-edge>${formatRM(item.price)}</p>
-      <p class="meta" data-edge>${esc(item.fitLabel)}</p>
+      <p class="meta" data-edge>${withAmounts(item.fitLabel)}</p>
       ${foreignNote(item) ? `<p class="meta" data-edge>${esc(foreignNote(item))}</p>` : ''}
       <div class="btn-row">
         <button class="btn btn-primary" type="button" data-action="log-wish" data-id="${esc(item.id)}">Log purchase</button>
@@ -788,7 +773,7 @@ function planList(model) {
           <span class="pick-name">${esc(item.name)}</span>
           <span class="pick-price">${formatRM(item.price)}</span>
         </span>
-        <span class="meta">${esc(item.priorityLabel)} · ${esc(item.fitLabel)}</span>
+        <span class="meta">${withAmounts(`${item.priorityLabel} · ${item.fitLabel}`)}</span>
       </span>
     </label>
   `).join('');
@@ -802,10 +787,11 @@ function planSummary(data) {
   if (plan.count > 0 && !plan.fits) detail = `${formatRM(plan.over)} over what's left this month.`;
   const overNote = model.over > 0 ? ` · already ${formatRM(model.over)} over the cap` : '';
   const payNote = model.month.payback > 0 ? ` · cap ${formatRM(model.month.cap)} after ${formatRM(model.month.payback)} overspend` : '';
+  const headline = plan.count === 0 ? 'Nothing picked' : `${formatRM(plan.total)} selected`;
   return `
-    <p class="meta">Left this month: ${formatRM(model.room)}${esc(overNote)}${esc(payNote)}</p>
-    <p class="plan-headline">${plan.count === 0 ? 'Nothing picked' : `${formatRM(plan.total)} selected`}</p>
-    <p id="plan-detail">${esc(detail)}</p>
+    <p class="meta">${withAmounts(`Left this month: ${formatRM(model.room)}${overNote}${payNote}`)}</p>
+    <p class="plan-headline">${withAmounts(headline)}</p>
+    <p id="plan-detail">${withAmounts(detail)}</p>
   `;
 }
 
@@ -973,7 +959,7 @@ function priceCheckLine(item, checks) {
   const detail = [source, when].filter(Boolean).join(' · ');
   if (!parts.length && !detail) return '<p class="check-empty" data-edge>No price check yet.</p>';
   return `
-    ${parts.length ? `<p class="check-line" data-edge>${esc(parts.join(' · '))}</p>` : ''}
+    ${parts.length ? `<p class="check-line" data-edge>${withAmounts(parts.join(' · '))}</p>` : ''}
     ${detail ? `<p class="check-sub" data-edge>${esc(detail)}</p>` : ''}
   `;
 }
@@ -998,7 +984,7 @@ function settingsView(data, corrupt) {
         </div>
         <label class="field" data-edge for="field-cap">Monthly cap (RM)
           <input id="field-cap" name="cap" inputmode="decimal" autocomplete="off" value="${esc(settings.monthlyCap.toFixed(2))}">
-          <span class="meta">The limit for each calendar month, in Malaysia time. It starts at RM 400.00.</span>
+          <span class="meta">${withAmounts('The limit for each calendar month, in Malaysia time. It starts at RM 400.00.')}</span>
         </label>
         <label class="checkline" data-edge>
           <input id="field-rollover" name="rollover" type="checkbox" ${settings.rollover ? 'checked' : ''}>
@@ -1011,14 +997,14 @@ function settingsView(data, corrupt) {
           <input id="field-payback" name="payback" type="checkbox" ${settings.overspendPayback ? 'checked' : ''}>
           <span>
             <span class="check-title">Overspend comes out of next month</span>
-            <span class="meta">If a month ends over the cap, that amount lowers the next month. The cap does not go below RM 0.00. On by default.</span>
+            <span class="meta">${withAmounts("If a month ends over the cap, that amount lowers the next month. The cap does not go below RM 0.00. On by default.")}</span>
           </span>
         </label>
         <label class="field" data-edge for="field-sync">Sheet sync URL
           <input id="field-sync" name="syncUrl" inputmode="url" autocomplete="off" placeholder="https://script.google.com/macros/s/DEPLOYMENT_ID/exec" value="${esc(syncFieldValue(settings))}">
           <span class="meta">Leave blank to use the built-in sheet. A different web app URL replaces it. Rates come from the European Central Bank via Frankfurter, with a cached rate when you are offline.</span>
         </label>
-        <p class="meta" id="settings-preview">${esc(preview)}</p>
+        <p class="meta" id="settings-preview">${withAmounts(preview)}</p>
         <p class="form-error" role="alert" hidden></p>
         <button class="btn btn-primary" type="submit">Save settings</button>
       </form>
@@ -1310,11 +1296,6 @@ function fieldChecked(form, name) {
 function suggestStatus(form) {
   const bought = fieldValue(form, 'boughtAs');
   const preorder = bought === 'preorder';
-  const status = form.elements.namedItem('status');
-  if (status) {
-    if (preorder && status.value === 'received') status.value = 'preordered';
-    if (!preorder && status.value === 'preordered') status.value = 'received';
-  }
   form.querySelectorAll('[data-standard]').forEach((el) => { el.hidden = preorder; });
   form.querySelectorAll('[data-preorder]').forEach((el) => { el.hidden = !preorder; });
   const note = form.querySelector('[data-preorder-note]');
@@ -1382,7 +1363,7 @@ async function updateFxHint(block) {
     refreshMoneyNotes(form);
   };
   if (original == null || original <= 0) {
-    hint.textContent = '';
+    showMoney(hint, '');
     block._quote = null;
     showCap(null);
     return;
@@ -1390,28 +1371,28 @@ async function updateFxHint(block) {
   const override = fieldChecked(form, names.override);
   const manual = parseMoney(fieldValue(form, names.rm));
   if (currency === 'MYR') {
-    hint.textContent = '';
+    showMoney(hint, '');
     block._quote = { currency: 'MYR', rate: 1, fxDate: date, cached: false, historical: true, requestedDate: date };
     showCap(override && manual != null ? manual : original);
     return;
   }
-  hint.textContent = 'Checking the rate…';
+  showMoney(hint, 'Checking the rate…');
   try {
     const quote = await loadQuote(currency, date);
     if (block._fxToken !== token || !block.isConnected) return;
     block._quote = { ...quote, requestedDate: date };
-    hint.textContent = conversionText({
+    showMoney(hint, conversionText({
       amount: original,
       currency,
       rate: quote.rate,
       cached: quote.cached,
       historical: quote.historical
-    });
+    }));
     showCap(override && manual != null ? manual : moneyToMyr(original, quote.rate));
   } catch {
     if (block._fxToken !== token || !block.isConnected) return;
     block._quote = null;
-    hint.textContent = 'Rate unavailable. Enter the statement amount in RM.';
+    showMoney(hint, 'Rate unavailable. Enter the statement amount in RM.');
     showCap(override && manual != null ? manual : null);
   }
 }
@@ -1443,15 +1424,15 @@ function refreshMoneyNotes(form) {
     const block = form.querySelector('[data-standard] [data-money]');
     const price = block?._rm ?? null;
     const date = fieldValue(form, 'date');
-    if (slot) slot.textContent = describeCap(price, date, form.dataset.id || '');
+    showMoney(slot, describeCap(price, date, form.dataset.id || ''));
     return;
   }
   const est = form.querySelector('[data-prefix="est"]')?._rm ?? null;
   const deposit = form.querySelector('[data-prefix="deposit"]')?._rm ?? null;
   if (due) {
-    due.textContent = est == null || deposit == null
+    showMoney(due, est == null || deposit == null
       ? ''
-      : `Balance due ${formatRM(settlePreorder(est, deposit, null).balanceDueRm)}`;
+      : `Balance due ${formatRM(settlePreorder(est, deposit, null).balanceDueRm)}`);
   }
   const payments = [];
   const depositDate = fieldValue(form, 'date');
@@ -1462,7 +1443,7 @@ function refreshMoneyNotes(form) {
     const balanceDate = fieldValue(form, 'balanceDate');
     if (balance != null && isYMD(balanceDate)) payments.push({ price: balance, date: balanceDate });
   }
-  if (slot) slot.textContent = describePayments(payments, form.dataset.id || '');
+  showMoney(slot, describePayments(payments, form.dataset.id || ''));
 }
 
 function matchingQuote(block, currency, date) {
@@ -1540,15 +1521,13 @@ function readPurchaseDetails(form) {
   const name = fieldValue(form, 'name').trim();
   const date = fieldValue(form, 'date');
   const boughtAs = fieldValue(form, 'boughtAs');
-  const status = fieldValue(form, 'status');
   const figureType = fieldValue(form, 'figureType');
   const condition = fieldValue(form, 'condition');
   const notes = fieldValue(form, 'notes').trim();
   if (!name) return { error: 'Enter a figure name.' };
   if (name.length > 80) return { error: 'Use a shorter name.' };
   if (!isYMD(date)) return { error: 'Choose a valid date.' };
-  if (!['new', 'preorder', 'second-hand'].includes(boughtAs)) return { error: 'Choose how you bought it.' };
-  if (!['preordered', 'received'].includes(status)) return { error: 'Choose a status.' };
+  if (!['purchased', 'preorder'].includes(boughtAs)) return { error: 'Choose an order type.' };
   if (notes.length > 280) return { error: 'Use a shorter note.' };
   const types = FIGURE_TYPES.map((item) => item.value);
   const conditions = PURCHASE_CONDITIONS.map((item) => item.value);
@@ -1562,7 +1541,6 @@ function readPurchaseDetails(form) {
       figureType: types.includes(figureType) ? figureType : '',
       boughtAs,
       condition: conditions.includes(condition) ? condition : '',
-      status,
       notes
     }
   };
@@ -1666,6 +1644,7 @@ async function savePurchase(form, id) {
     ...details.detail,
     ...money,
     ...extra,
+    status: derivedPurchaseStatus(details.detail.boughtAs, extra.preorderStatus),
     createdAt: existing?.createdAt || now().toISOString(),
     updatedAt: now().toISOString()
   };
@@ -1884,17 +1863,17 @@ function updateSettingsPreview(form) {
   if (!slot) return;
   const cap = parseMoney(fieldValue(form, 'cap'));
   if (cap == null || cap < 0 || cap > MAX_MONEY) {
-    slot.textContent = 'Enter a cap of RM 0.00 or more.';
+    showMoney(slot, 'Enter a cap of RM 0.00 or more.');
     return;
   }
   const loaded = currentData();
   if (loaded.corrupt) return;
-  slot.textContent = settingsPreview({
+  showMoney(slot, settingsPreview({
     ...loaded.data.settings,
     monthlyCap: cap,
     rollover: fieldChecked(form, 'rollover'),
     overspendPayback: fieldChecked(form, 'payback')
-  }, loaded.data.purchases);
+  }, loaded.data.purchases));
 }
 
 function removeWish(id) {
@@ -1933,12 +1912,12 @@ function askLogWish(id) {
   const today = todayYMD();
   const room = homeModel(loaded.data, now()).month.room;
   const fit = fitFor(item.price, room);
-  const warning = fit.fits ? '' : `<p class="form-error">This would go past what's left by ${formatRM(fit.short)}.</p>`;
+  const warning = fit.fits ? '' : `<p class="form-error">${withAmounts(`This would go past what's left by ${formatRM(fit.short)}.`)}</p>`;
   const foreign = foreignNote(item);
   openDialog(`
     <h2 id="dialog-title">${fit.fits ? 'Log this figure?' : 'This goes past the cap'}</h2>
     <p><strong>${esc(item.name)}</strong></p>
-    <p>${formatRM(item.price)} · ${esc(formatFullDay(today))} · New</p>
+    <p>${withAmounts(`${formatRM(item.price)} · ${formatFullDay(today)} · Purchased`)}</p>
     ${foreign ? `<p class="meta">${esc(foreign)}</p>` : ''}
     ${warning}
     <p class="meta">You can change the date and details later in the log.</p>
@@ -1963,7 +1942,7 @@ function confirmLogWish(id) {
     series: '',
     brand: '',
     figureType: '',
-    boughtAs: 'new',
+    boughtAs: 'purchased',
     condition: '',
     originalAmount: item.originalAmount,
     currency: item.currency,
@@ -2000,7 +1979,7 @@ function askDelete(id) {
   if (!purchase) return;
   openDialog(`
     <h2 id="dialog-title">Delete this purchase?</h2>
-    <p><strong>${esc(purchase.name)}</strong> · ${formatRM(purchase.price)} will leave the log. This month's totals will update.</p>
+    <p><strong>${esc(purchase.name)}</strong> · ${withAmounts(`${formatRM(purchase.price)} will leave the log.`)} This month's totals will update.</p>
     <div class="btn-row">
       <button class="btn btn-primary" type="button" data-action="confirm-delete" data-id="${esc(id)}">Delete</button>
       <button class="btn btn-ghost" type="button" data-action="close-dialog">Cancel</button>
@@ -2159,11 +2138,16 @@ function fillCheckSlots() {
   });
 }
 
+function showMoney(el, text) {
+  if (!el) return;
+  el.innerHTML = withAmounts(text || '');
+}
+
 function showFormError(form, message) {
   const slot = form.querySelector('.form-error');
   if (!slot) return;
   slot.hidden = false;
-  slot.textContent = message;
+  showMoney(slot, message);
 }
 
 function clearFormError(form) {
