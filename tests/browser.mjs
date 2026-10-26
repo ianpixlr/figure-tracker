@@ -26,8 +26,78 @@ async function bodyText(page) {
   return page.evaluate(() => document.body.innerText);
 }
 
-async function shot(page, name) {
+async function shot(page, name, focus) {
+  await page.evaluate((selector) => {
+    if (!selector) {
+      window.scrollTo(0, 0);
+      return;
+    }
+    const el = document.querySelector(selector);
+    if (!el) {
+      window.scrollTo(0, 0);
+      return;
+    }
+    const top = el.getBoundingClientRect().top + window.scrollY - 72;
+    window.scrollTo(0, Math.max(0, top));
+  }, focus || '');
   await page.screenshot({ path: `${SHOTS}/${name}.png` });
+}
+
+async function assertTextFits(page) {
+  const problems = await page.evaluate(() => {
+    const hidden = (el) => Boolean(el.closest('[hidden]'));
+    const issues = [];
+    for (const el of document.body.querySelectorAll('*')) {
+      if (hidden(el)) continue;
+      const style = getComputedStyle(el);
+      if (style.display === 'none' || style.visibility === 'hidden') continue;
+      const tag = el.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || tag === 'SVG' || tag === 'PATH') continue;
+      const rect = el.getBoundingClientRect();
+      if (rect.width < 2 || rect.height < 2) continue;
+      if (style.display !== 'inline' && el.scrollWidth > el.clientWidth + 1) {
+        issues.push(`wide ${tag}.${String(el.className).slice(0, 40)} ${(el.textContent || '').trim().slice(0, 32)}`);
+      }
+    }
+    const wordSplitsMidGlyph = (node, start, word) => {
+      let lastTop = null;
+      for (let i = 0; i < word.length; i += 1) {
+        const glyph = document.createRange();
+        glyph.setStart(node, start + i);
+        glyph.setEnd(node, start + i + 1);
+        const box = [...glyph.getClientRects()].find((item) => item.width > 0.5 && item.height > 0.5);
+        if (!box) continue;
+        if (lastTop != null && Math.abs(box.top - lastTop) > 1) {
+          const prev = word[i - 1];
+          if (prev !== '-' && prev !== '/' && prev !== '–' && prev !== '—') return true;
+        }
+        lastTop = box.top;
+      }
+      return false;
+    };
+    const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+    let node;
+    while ((node = walker.nextNode())) {
+      const parent = node.parentElement;
+      if (!parent || hidden(parent)) continue;
+      const text = node.textContent || '';
+      const re = /\S+/g;
+      let match;
+      while ((match = re.exec(text))) {
+        if (match[0].length < 2) continue;
+        const range = document.createRange();
+        range.setStart(node, match.index);
+        range.setEnd(node, match.index + match[0].length);
+        const rects = [...range.getClientRects()].filter((item) => item.width > 0.5 && item.height > 0.5);
+        if (rects.length > 1 && wordSplitsMidGlyph(node, match.index, match[0])) {
+          issues.push(`split ${match[0]}`);
+        }
+        if (issues.length > 10) return issues;
+      }
+    }
+    return issues.slice(0, 10);
+  });
+  assert.deepEqual(problems, []);
 }
 
 async function assertTypeScale(page) {
@@ -51,6 +121,7 @@ async function assertTypeScale(page) {
   });
   assert.deepEqual(stray.bad, [], JSON.stringify(stray));
   assert.equal(stray.allowed.length, 3);
+  await assertTextFits(page);
 }
 
 async function assertAlignment(page) {
@@ -73,11 +144,32 @@ async function assertAlignment(page) {
       if (Math.abs(rect.left - left) > 1 || Math.abs(rect.right - right) > 1) {
         problems.push(`card ${card.className} ${Math.round(rect.left)}-${Math.round(rect.right)} vs ${Math.round(left)}-${Math.round(right)}`);
       }
-      const edges = [...card.querySelectorAll('[data-edge]')].filter(visible);
+      const edges = [...card.querySelectorAll(':scope [data-edge]')].filter((el) => {
+        if (!visible(el)) return false;
+        const nested = el.parentElement?.closest('.block, .panel, .group');
+        return nested === card;
+      });
       if (edges.length < 2) continue;
       const edgeLeft = edges[0].getBoundingClientRect().left;
       if (edges.some((el) => Math.abs(el.getBoundingClientRect().left - edgeLeft) > 1)) {
         problems.push(`edge ${card.className}`);
+      }
+    }
+    for (const line of main.querySelectorAll('.checkline')) {
+      if (!visible(line)) continue;
+      const box = line.querySelector('input[type="checkbox"]');
+      const title = line.querySelector('.check-title');
+      if (!box || !title) continue;
+      const boxRect = box.getBoundingClientRect();
+      const titleRect = title.getBoundingClientRect();
+      const lineHeight = parseFloat(getComputedStyle(title).lineHeight) || titleRect.height;
+      if (boxRect.top > titleRect.top + lineHeight || boxRect.bottom < titleRect.top) {
+        problems.push('checkbox off the first line');
+      }
+      const host = line.closest('.money, .panel, .group');
+      const field = host?.querySelector('.field input, .field select, .field textarea');
+      if (field && Math.abs(boxRect.left - field.getBoundingClientRect().left) > 1) {
+        problems.push('checkbox off the field edge');
       }
     }
     return problems;
@@ -229,7 +321,7 @@ async function main() {
 
     const realToday = await page.evaluate(() => window.__figureCap.today());
     assert.equal(await text(page, '#today-line'), klLong(new Date()));
-    assert.equal(await text(page, '#left-value'), '400.00');
+    assert.equal(await text(page, '#left-value'), 'RM 400 / 400');
     const headingFocus = await page.evaluate(() => {
       const heading = document.getElementById('month-title');
       const style = getComputedStyle(heading);
@@ -244,7 +336,7 @@ async function main() {
     assert.equal(headingFocus.tabIndex, -1);
     assert.equal(headingFocus.outline, 'none');
     assert.equal(headingFocus.shadow, 'none');
-    assert.equal(await text(page, '#cap-line'), 'left of RM 400.00');
+    assert.equal(await text(page, '#cap-line'), 'left this month');
     assert.equal(await text(page, '#spent-value'), 'RM 0.00');
     assert.equal(await text(page, '#ytd-value'), 'RM 0.00');
     assert.equal(await page.$eval('#cap-status', (el) => el.dataset.state), 'ok');
@@ -261,6 +353,7 @@ async function main() {
     await assertTapTargets(page);
     await assertTypeScale(page);
     await assertAlignment(page);
+    await assertTextFits(page);
     await shot(page, 'home');
 
     await go(page, '#settings', '#field-cap');
@@ -292,17 +385,17 @@ async function main() {
     await assertAlignment(page);
     await shot(page, 'log-add');
 
-    await typeInto(page, '#field-name', 'Asuka');
+    await typeInto(page, '#field-name', 'Asuka Langley Soryu Plugsuit Ver. 1/7 Scale');
     await typeInto(page, '#field-price', '80');
     await page.$eval('details.more', (el) => { el.open = true; });
     await page.select('#field-type', 'nendoroid');
-    await typeInto(page, '#field-series', 'Eva');
+    await typeInto(page, '#field-series', 'Neon Genesis Evangelion');
     await typeInto(page, '#field-brand', 'Good Smile');
     await typeInto(page, '#field-notes', 'window');
     await press(page, '#log-form button[type="submit"]');
     await page.waitForSelector('#month-title');
     assert.equal(await text(page, '#spent-value'), 'RM 80.00');
-    assert.equal(await text(page, '#left-value'), '320.00');
+    assert.equal(await text(page, '#left-value'), 'RM 320 / 400');
     assert.equal(await text(page, '#ytd-value'), 'RM 80.00');
     assert.equal(await page.$('#cap-message'), null);
 
@@ -344,7 +437,7 @@ async function main() {
     await assertNoOverflow(page);
 
     await page.evaluate(() => {
-      const article = [...document.querySelectorAll('article')].find((el) => el.querySelector('h3')?.textContent.trim() === 'Asuka');
+      const article = [...document.querySelectorAll('article')].find((el) => el.querySelector('h3')?.textContent.includes('Asuka'));
       article.querySelector('a.btn').click();
     });
     await page.waitForSelector('#edit-form');
@@ -364,17 +457,17 @@ async function main() {
     await typeInto(page, '#wish-name', 'Mari');
     await typeInto(page, '#wish-price', '100');
     await press(page, '#wish-form button[type="submit"]');
-    await page.waitForFunction(() => document.getElementById('wish-total')?.textContent === '100.00');
+    await page.waitForFunction(() => document.getElementById('wish-total')?.textContent === '100');
     assert.match(await bodyText(page), /Fits this month/);
     assert.equal((await bodyText(page)).includes('Ready to buy'), false);
     await assertTypeScale(page);
     await assertAlignment(page);
     await shot(page, 'wishlist');
     await page.evaluate(() => document.querySelector('[data-action="remove-wish"]').click());
-    await page.waitForFunction(() => document.getElementById('wish-total')?.textContent === '0.00');
+    await page.waitForFunction(() => document.getElementById('wish-total')?.textContent === '0');
     await page.waitForSelector('[data-action="toast-action"]');
     await press(page, '[data-action="toast-action"]');
-    await page.waitForFunction(() => document.getElementById('wish-total')?.textContent === '100.00');
+    await page.waitForFunction(() => document.getElementById('wish-total')?.textContent === '100');
 
     await go(page, '#plan', '#plan-summary');
     await assertTypeScale(page);
@@ -534,12 +627,16 @@ async function main() {
         }],
         forSale: []
       }));
-      window.__figureCap.setNow('2026-11-15T04:00:00Z');
+      window.__figureCap.setNow('2026-10-20T04:00:00Z');
       location.hash = '#home';
     });
-    await page.waitForFunction(() => document.getElementById('cap-line')?.textContent.includes("October's overspend"));
-    assert.equal(await text(page, '#cap-line'), "left of RM 340.00 · RM 60.00 from October's overspend");
-    assert.equal(await text(page, '#left-value'), '340.00');
+    await page.waitForFunction(() => document.getElementById('cap-line')?.textContent === 'RM 60 over');
+    assert.equal(await text(page, '#left-value'), 'RM 0 / 400');
+    assert.equal(await text(page, '#cap-line'), 'RM 60 over');
+    await page.evaluate(() => window.__figureCap.setNow('2026-11-15T04:00:00Z'));
+    await page.waitForFunction(() => document.getElementById('cap-line')?.textContent.includes('from October'));
+    assert.equal(await text(page, '#cap-line'), 'cap RM 340 · RM 60 from October');
+    assert.equal(await text(page, '#left-value'), 'RM 340 / 340');
     await assertTypeScale(page);
     await shot(page, 'home-payback');
     await go(page, '#entries', '#chart');
@@ -550,11 +647,22 @@ async function main() {
     await shot(page, 'plan-payback');
     await page.evaluate(() => window.__figureCap.clearNow());
 
+    await go(page, '#log', '#field-name');
+    await clickLabel(page, 'Pre-order');
+    await typeInto(page, '#field-name', 'Rei');
+    await typeInto(page, '#field-est', '200');
+    await typeInto(page, '#field-deposit', '50');
+    await page.waitForFunction(() => /Balance due/.test(document.querySelector('[data-balance-due]')?.textContent || ''));
+    await assertTypeScale(page);
+    await assertAlignment(page);
+    await shot(page, 'log-add', '#field-est');
+
     await page.setViewport({ width: 320, height: 700, isMobile: true, hasTouch: true, deviceScaleFactor: 2 });
     for (const [hash, ready] of [['#home', '#left-value'], ['#log', '#field-name'], ['#wish', '#wish-name'], ['#sell', '#sale-name'], ['#settings', '#field-cap']]) {
       await go(page, hash, ready);
       await assertNoOverflow(page);
       await assertTapTargets(page);
+      await assertTextFits(page);
     }
 
     const sw = await page.evaluate(async () => {

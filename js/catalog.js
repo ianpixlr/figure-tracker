@@ -46,8 +46,8 @@ export const SALE_STATUSES = [
 ];
 
 export function figureTypeLabel(value) {
-  if (!value) return 'Unspecified';
-  return FIGURE_TYPES.find((item) => item.value === value)?.label || 'Unspecified';
+  if (!value) return 'Other';
+  return FIGURE_TYPES.find((item) => item.value === value)?.label || 'Other';
 }
 
 export function boughtAsLabel(value) {

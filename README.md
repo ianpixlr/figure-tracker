@@ -25,14 +25,14 @@ After the first load the shell also works offline. A sheet sync needs a connecti
 
 ## Using it
 
-- **Home** shows what is left this month in Malaysia time, a bar against the cap, the latest purchase, balances still due on open pre-orders, and the year to date. When the cap is used up it says: "Month done, next purchase waits for the 1st".
+- **Home** shows what is left this month in Malaysia time as `RM 320 / 400` (left, then this month's cap) with `left this month` under it. Whole ringgit amounts on that line drop the `.00`. A bar sits under that, then the latest purchase, balances still due on open pre-orders, and the year to date. Figures with no type count as Other. When the cap is used up it says: "Month done, next purchase waits for the 1st". Going over the cap shows `RM 0 / 400` and, in the small line, `RM 60 over`.
 - **Log** is the collection. The date defaults to today and can be changed for past buys. Name and price are required. Series, brand, type, condition, shop, status, and notes sit under More details. Search plus one Filter button narrows entries by month, year, brand, and series. Edit and delete are on each entry.
 - A **pre-order** asks for an estimated full price, the deposit, and the deposit date. Balance due is the estimate minus the deposit. **Pay balance** records the amount you actually paid and the date. The deposit counts in the month it was paid. The balance counts in the month it was paid. Home adds up balances still due.
 - **Wishlist** items need a name and a price. Priority starts at Really want. Each item shows whether it fits this month. Remove is one tap, with undo. **Plan the month** adds up the figures you pick against the adjusted cap.
 - **Sell** lists a figure with its condition (MISB, MIB, BIB, or Loose), asking price, and notes. Mark it sold with the sold price and date. Price checks typed into the sheet show on the card. Until a check exists, the card says "No price check yet."
 - **Settings** holds the cap, unused rollover (off by default), overspend payback (on by default), the sheet address, and JSON export / import.
 
-You can save a purchase that goes past the cap. Home will show that the month is over. With payback on, that overspend lowers only the next month's cap, and the cap does not go below RM 0.00. Home says so in the line under the amount, for example `left of RM 340.00 · RM 60.00 from October's overspend`. Turning payback off leaves later months at the base cap. Rollover, when on, adds only the previous month's unused amount. The two do not stack on the same previous month.
+You can save a purchase that goes past the cap. Home will show that the month is over. With payback on, that overspend lowers only the next month's cap, and the cap does not go below RM 0.00. Home shows what is left over this month's cap, for example `RM 340 / 340` with `cap RM 340 · RM 60 from October` underneath. Turning payback off leaves later months at the base cap. Rollover, when on, adds only the previous month's unused amount. The two do not stack on the same previous month.
 
 ## Currencies
 

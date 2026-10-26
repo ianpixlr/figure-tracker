@@ -387,7 +387,7 @@ test('filters, category totals, and the latest price check', () => {
   assert.equal(filterPurchases(purchases, { brand: 'Bandai', series: 'Gundam' }).length, 1);
   const totals = categoryTotals(filterPurchases(purchases, { year: '2026' }));
   assert.equal(totals.find((row) => row.figureType === 'nendoroid').total, 80);
-  assert.equal(totals.find((row) => row.figureType === '').label, 'Unspecified');
+  assert.equal(totals.find((row) => row.figureType === '').label, 'Other');
 
   const listing = { id: 's1', name: 'Asuka', condition: 'MISB' };
   const checks = [

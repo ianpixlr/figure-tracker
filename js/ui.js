@@ -210,7 +210,12 @@ function persist(data) {
 }
 
 function heroAmount(value) {
-  return formatRM(value).replace('-', '').replace(/^RM\s/, '');
+  const text = formatRM(value).replace('-', '').replace(/^RM\s/, '');
+  return text.endsWith('.00') ? text.slice(0, -3) : text;
+}
+
+function monthName(ym) {
+  return formatMonth(ym).replace(/\s+\d{4}$/, '');
 }
 
 function homeView(data) {
@@ -226,10 +231,7 @@ function homeView(data) {
     <section class="stack">
       <div class="lede">
         <h2 id="month-title">${esc(formatMonth(model.ym))}</h2>
-        <p class="hero">
-          <span class="hero-currency">RM</span>
-          <span class="hero-num" id="left-value">${esc(heroAmount(month.room))}</span>
-        </p>
+        <p class="hero" id="left-value"><span class="hero-currency">RM</span> <span class="hero-num">${esc(heroAmount(month.room))}</span> <span class="hero-cap">/ ${esc(heroAmount(month.cap))}</span></p>
         <p class="hero-caption" id="cap-line">${esc(caption)}</p>
       </div>
       <div>
@@ -247,14 +249,17 @@ function homeView(data) {
       <a class="btn btn-primary" id="log-link" href="#log">Log a purchase</a>
       ${latest ? latestCard(latest) : `
         <article class="block yellow">
-          <p class="kicker" data-edge>Collection</p>
+          <div class="card-head" data-edge>
+            <div class="tags"><span class="tag">Collection</span></div>
+            <a class="arrow" href="#log" aria-label="Log a purchase">${ARROW}</a>
+          </div>
           <h3 data-edge>No figures yet</h3>
           <p class="meta" data-edge>The log is the collection. The bar above is what is left of this month's cap.</p>
         </article>`}
       ${balances.count ? `
         <article class="block lilac" id="balances-card">
           <div class="card-head" data-edge>
-            <p class="kicker">Balances coming</p>
+            <div class="tags"><span class="tag">Balances coming</span></div>
             <a class="arrow" href="#entries" aria-label="Open open pre-orders">${ARROW}</a>
           </div>
           <p class="block-value" data-edge>${formatRM(balances.total)}</p>
@@ -262,10 +267,10 @@ function homeView(data) {
         </article>` : ''}
       <article class="block mint">
         <div class="card-head" data-edge>
-          <p class="kicker">${esc(model.year)}</p>
+          <div class="tags"><span class="tag">${esc(model.year)}</span></div>
           <a class="arrow" href="#entries" aria-label="Open the log">${ARROW}</a>
         </div>
-        <h3 data-edge>Year to date</h3>
+        <p class="kicker" data-edge>Year to date</p>
         <p class="block-value" id="ytd-value" data-edge>${formatRM(model.ytd)}</p>
         ${breakdownStats(model.breakdown)}
       </article>
@@ -290,12 +295,15 @@ function homeView(data) {
 }
 
 function capCaption(month) {
-  const main = month.over > 0
-    ? `${formatRM(month.over)} over the ${formatRM(month.cap)} cap`
-    : `left of ${formatRM(month.cap)}`;
-  if (!(month.payback > 0) || !month.paybackMonth) return main;
-  const name = formatMonth(month.paybackMonth).replace(/\s+\d{4}$/, '');
-  return `${main} · ${formatRM(month.payback)} from ${name}'s overspend`;
+  const paidBack = month.payback > 0 && month.paybackMonth;
+  if (month.over > 0 && paidBack) {
+    return `RM ${heroAmount(month.over)} over · from ${monthName(month.paybackMonth)}`;
+  }
+  if (month.over > 0) return `RM ${heroAmount(month.over)} over`;
+  if (paidBack) {
+    return `cap RM ${heroAmount(month.cap)} · RM ${heroAmount(month.payback)} from ${monthName(month.paybackMonth)}`;
+  }
+  return 'left this month';
 }
 
 function spentStatus(month) {
@@ -436,9 +444,13 @@ function purchaseForm(purchase, today) {
           </div>
         </div>
         <p class="cap-note" data-cap-note></p>
-        <p class="kicker">Bought as</p>
-        ${chips('boughtAs', BOUGHT_AS_OPTIONS, value.boughtAs || 'new')}
-        <p class="meta" data-preorder-note ${preorder ? '' : 'hidden'}>The deposit counts in the month you pay it. The balance counts in the month you pay that.</p>
+        <div class="group">
+          <div class="row">
+            <p class="kicker" data-edge>Bought as</p>
+            ${chips('boughtAs', BOUGHT_AS_OPTIONS, value.boughtAs || 'new')}
+            <p class="meta" data-edge data-preorder-note ${preorder ? '' : 'hidden'}>The deposit counts in the month you pay it. The balance counts in the month you pay that.</p>
+          </div>
+        </div>
         <div data-pay-box ${showPay ? '' : 'hidden'}>
           <div class="group">
             <div class="row">
@@ -462,14 +474,19 @@ function purchaseForm(purchase, today) {
           </div>
         </div>
         ${canPay ? '<button class="btn btn-ghost" type="button" data-action="show-pay">Pay balance</button>' : ''}
-        <p class="kicker">Status</p>
-        ${chips('status', PURCHASE_STATUSES, value.status || 'received')}
-        <details class="more" ${openMore ? 'open' : ''}>
-          <summary>
-            <span>
+        <div class="group">
+          <div class="row">
+            <p class="kicker" data-edge>Status</p>
+            ${chips('status', PURCHASE_STATUSES, value.status || 'received')}
+          </div>
+        </div>
+        <details class="group more" ${openMore ? 'open' : ''}>
+          <summary data-edge>
+            <span class="more-copy">
               <strong>More details</strong>
               <span class="meta">Series, brand, type, condition, shop, notes</span>
             </span>
+            <svg class="chevron" viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="m6 9 6 6 6-6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"></path></svg>
           </summary>
           <div class="more-body">
             <label class="field" data-edge for="field-series">Series
@@ -677,11 +694,11 @@ function wishView(data, mode) {
 function wishForm() {
   return `
     <form class="panel" id="wish-form" novalidate>
-      <label class="field" for="wish-name">Figure name
+      <label class="field" data-edge for="wish-name">Figure name
         <input id="wish-name" name="name" maxlength="80" autocomplete="off" autocapitalize="words">
       </label>
       ${moneyFields({ amountId: 'wish-price' })}
-      <label class="field" for="wish-priority">Priority
+      <label class="field" data-edge for="wish-priority">Priority
         <select id="wish-priority" name="priority">
           ${PRIORITY_OPTIONS.map((option) => `
             <option value="${option.value}" ${option.value === 'really' ? 'selected' : ''}>${esc(option.label)}</option>
@@ -770,18 +787,18 @@ function saleForm(item) {
   const editing = Boolean(item);
   return `
     <form class="panel" id="sale-form" ${editing ? `data-id="${esc(item.id)}"` : ''} novalidate>
-      <label class="field" for="sale-name">Figure name
+      <label class="field" data-edge for="sale-name">Figure name
         <input id="sale-name" name="name" maxlength="80" autocomplete="off" value="${esc(value.name)}">
       </label>
-      <label class="field" for="sale-brand">Brand
+      <label class="field" data-edge for="sale-brand">Brand
         <input id="sale-brand" name="brand" maxlength="80" autocomplete="off" value="${esc(value.brand || '')}">
       </label>
-      <label class="field" for="sale-series">Series
+      <label class="field" data-edge for="sale-series">Series
         <input id="sale-series" name="series" maxlength="80" autocomplete="off" value="${esc(value.series || '')}">
       </label>
-      <p class="spec-label">Condition</p>
+      <p class="spec-label" data-edge>Condition</p>
       ${chips('condition', SALE_CONDITIONS, value.condition || 'MISB')}
-      <p class="spec-label">Asking price</p>
+      <p class="spec-label" data-edge>Asking price</p>
       ${moneyFields({
         amount: amountValue(value.originalAmount),
         currency: value.currency || 'MYR',
@@ -789,10 +806,10 @@ function saleForm(item) {
         amountRm: value.fxOverridden ? amountValue(value.price) : '',
         amountId: 'sale-price'
       })}
-      <label class="field" for="sale-notes">Notes
+      <label class="field" data-edge for="sale-notes">Notes
         <textarea id="sale-notes" name="notes" maxlength="280" rows="3">${esc(value.notes || '')}</textarea>
       </label>
-      <p class="spec-label">Status</p>
+      <p class="spec-label" data-edge>Status</p>
       ${chips('status', SALE_STATUSES, value.status || 'listed')}
       <div data-sold-box ${value.status === 'sold' ? '' : 'hidden'}>
         <p class="spec-label">Sold price</p>
@@ -804,7 +821,7 @@ function saleForm(item) {
           amountRm: value.soldFxOverridden ? amountValue(value.soldPrice) : '',
           amountId: 'sold-price'
         })}
-        <label class="field" for="sold-date">Sold date
+        <label class="field" data-edge for="sold-date">Sold date
           <input id="sold-date" name="soldDate" type="date" value="${esc(value.soldDate || '')}">
         </label>
       </div>
@@ -876,25 +893,25 @@ function settingsView(data, corrupt) {
       <h2>Settings</h2>
       ${corrupt ? '<p class="banner" id="corrupt-note">Saved data on this device could not be read.</p>' : ''}
       <form class="panel" id="settings-form" novalidate>
-        <label class="field" for="field-cap">Monthly cap (RM)
+        <label class="field" data-edge for="field-cap">Monthly cap (RM)
           <input id="field-cap" name="cap" inputmode="decimal" autocomplete="off" value="${esc(settings.monthlyCap.toFixed(2))}">
           <span class="meta">The limit for each calendar month, in Malaysia time. It starts at RM 400.00.</span>
         </label>
-        <label class="checkline">
+        <label class="checkline" data-edge>
           <input id="field-rollover" name="rollover" type="checkbox" ${settings.rollover ? 'checked' : ''}>
           <span>
             <span class="check-title">Unspent money rolls over</span>
             <span class="meta">Adds whatever you did not spend last month to this month's cap. Off by default.</span>
           </span>
         </label>
-        <label class="checkline">
+        <label class="checkline" data-edge>
           <input id="field-payback" name="payback" type="checkbox" ${settings.overspendPayback ? 'checked' : ''}>
           <span>
             <span class="check-title">Overspend comes out of next month</span>
             <span class="meta">If a month ends over the cap, that amount lowers the next month. The cap does not go below RM 0.00. On by default.</span>
           </span>
         </label>
-        <label class="field" for="field-sync">Sheet sync URL
+        <label class="field" data-edge for="field-sync">Sheet sync URL
           <input id="field-sync" name="syncUrl" inputmode="url" autocomplete="off" placeholder="https://script.google.com/macros/s/DEPLOYMENT_ID/exec" value="${esc(syncFieldValue(settings))}">
           <span class="meta">Leave blank to use the built-in sheet. A different web app URL replaces it. Rates come from the European Central Bank via Frankfurter, with a cached rate when you are offline.</span>
         </label>
@@ -1009,7 +1026,7 @@ function selectOptions(options, selected) {
 }
 
 function chips(name, options, selected) {
-  return `<div class="chips" role="radiogroup" aria-label="${esc(name)}">${options.map((option) => `
+  return `<div class="chips" data-edge role="radiogroup" aria-label="${esc(name)}">${options.map((option) => `
     <label class="chip">
       <input type="radio" name="${esc(name)}" value="${esc(option.value)}" ${option.value === selected ? 'checked' : ''}>
       <span>${esc(option.label)}</span>
@@ -2027,7 +2044,7 @@ function showToast(message, actionLabel, onAction) {
     toast.append(button);
   }
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => hideToast(), actionLabel ? 6000 : 2600);
+  toastTimer = setTimeout(() => hideToast(), actionLabel ? 4000 : 1500);
 }
 
 function hideToast() {
