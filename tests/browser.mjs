@@ -488,6 +488,7 @@ async function assertShell(page) {
       mainOverflow: main.overflowY,
       mainOverscroll: main.overscrollBehavior,
       navPosition: nav.position,
+      standalone: document.documentElement.classList.contains('standalone'),
       touch: html.touchAction,
       viewport: document.querySelector('meta[name="viewport"]').content,
       preload: Boolean(document.querySelector('link[rel="preload"][as="font"]'))
@@ -495,7 +496,8 @@ async function assertShell(page) {
   });
   assert.equal(shell.viewport, 'width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover');
   assert.equal(shell.bodyPosition, 'fixed');
-  assert.equal(shell.navPosition, 'fixed');
+  assert.equal(shell.navPosition, 'relative');
+  assert.equal(shell.standalone, false);
   assert.equal(shell.mainOverflow, 'auto');
   assert.ok(shell.overscroll.includes('none'), shell.overscroll);
   assert.ok(shell.bodyOverscroll.includes('none'), shell.bodyOverscroll);
@@ -621,12 +623,114 @@ async function assertNavOnScreen(page, expectedPad) {
   assert.equal(result.parentPad, 0);
   assert.ok(result.padTop >= 6 && result.padTop <= 8, JSON.stringify(result));
   assert.ok(result.linkHeight <= 50, JSON.stringify(result));
-  assert.ok(result.mainPad >= result.navHeight && result.mainPad - result.navHeight <= 12, JSON.stringify(result));
+  assert.equal(result.mainPad, 0);
   if (expectedPad === 20) {
     assert.ok(result.navHeight >= 66 && result.navHeight <= 76, JSON.stringify(result));
     assert.ok(result.baselineGap >= 18 && result.baselineGap <= 32, JSON.stringify(result));
   }
   return result;
+}
+
+async function assertAlignedHeaders(page) {
+  const problems = await page.evaluate(() => {
+    const round = (value) => Math.round(value * 10) / 10;
+    const box = (el) => el.getBoundingClientRect();
+    const problems = [];
+    const check = (label, row, targetLeft, targetRight) => {
+      if (!row) {
+        problems.push(`${label} missing`);
+        return;
+      }
+      const rr = box(row);
+      const style = getComputedStyle(row);
+      if (Math.abs(rr.left - targetLeft) > 1) problems.push(`${label} left ${round(rr.left - targetLeft)}`);
+      if (Math.abs(rr.right - targetRight) > 1) problems.push(`${label} right ${round(rr.right - targetRight)}`);
+      if ((parseFloat(style.marginLeft) || 0) !== 0 || (parseFloat(style.marginRight) || 0) !== 0) {
+        problems.push(`${label} margin ${style.marginLeft} ${style.marginRight}`);
+      }
+      if ((parseFloat(style.paddingLeft) || 0) !== 0 || (parseFloat(style.paddingRight) || 0) !== 0) {
+        problems.push(`${label} padding ${style.paddingLeft} ${style.paddingRight}`);
+      }
+      if (row.scrollWidth > row.clientWidth + 1) problems.push(`${label} text ${row.scrollWidth}>${row.clientWidth}`);
+      if (!row.matches('.item-top, .chart-top, .pick-top, .progress-meta, .month-head')) return;
+      const amount = row.lastElementChild;
+      if (!amount) return;
+      const ar = box(amount);
+      if (Math.abs(ar.right - targetRight) > 1) problems.push(`${label} amount ${round(ar.right - targetRight)}`);
+    };
+    for (const group of document.querySelectorAll('.month-group')) {
+      const card = group.querySelector('article.block');
+      const header = group.querySelector('.item-top');
+      if (!card || !header) continue;
+      const cr = box(card);
+      check(`month ${header.textContent.replace(/\s+/g, ' ').trim().slice(0, 24)}`, header, cr.left, cr.right);
+    }
+    const chart = document.getElementById('chart');
+    if (chart) {
+      for (const top of chart.querySelectorAll('.chart-top')) {
+        const bar = top.parentElement?.querySelector('.bar');
+        if (!bar) continue;
+        const br = box(bar);
+        check(`chart ${top.textContent.replace(/\s+/g, ' ').trim().slice(0, 20)}`, top, br.left, br.right);
+      }
+    }
+    const progress = document.querySelector('.progress-meta');
+    const budget = document.getElementById('budget-bar');
+    if (progress && budget) {
+      const br = box(budget);
+      check('progress', progress, br.left, br.right);
+    }
+    const pageTitle = document.querySelector('main h2');
+    const card = document.querySelector('main article.block') || document.querySelector('main .panel');
+    if (pageTitle && card) {
+      const cr = box(card);
+      check(`heading ${pageTitle.textContent.replace(/\s+/g, ' ').trim().slice(0, 24)}`, pageTitle, cr.left, cr.right);
+    }
+    for (const pick of document.querySelectorAll('label.pick')) {
+      const top = pick.querySelector('.pick-top');
+      if (!top) continue;
+      const pr = box(pick);
+      const padR = parseFloat(getComputedStyle(pick).paddingRight) || 0;
+      const targetRight = pr.right - padR;
+      const label = `pick ${top.textContent.replace(/\s+/g, ' ').trim().slice(0, 24)}`;
+      const rr = box(top);
+      if (Math.abs(rr.right - targetRight) > 1) problems.push(`${label} right ${round(rr.right - targetRight)}`);
+      if (rr.left < pr.left - 1 || rr.right > pr.right + 1) problems.push(`${label} outside card`);
+      const amount = top.querySelector('.pick-price');
+      if (amount && Math.abs(box(amount).right - targetRight) > 1) {
+        problems.push(`${label} amount ${round(box(amount).right - targetRight)}`);
+      }
+    }
+    return problems;
+  });
+  assert.deepEqual(problems, []);
+}
+
+async function shootMonthAlign(page) {
+  const box = await page.evaluate(() => {
+    const group = document.querySelector('.month-group');
+    const header = group.querySelector('.item-top');
+    const card = group.querySelector('article.block');
+    const scroller = document.getElementById('main');
+    const origin = scroller.getBoundingClientRect().top;
+    scroller.scrollTop += header.getBoundingClientRect().top - origin - 20;
+    const h = header.getBoundingClientRect();
+    const c = card.getBoundingClientRect();
+    document.querySelector('[data-align-guide]')?.remove();
+    const line = document.createElement('div');
+    line.setAttribute('data-align-guide', '');
+    const top = Math.max(0, h.top - 6);
+    const height = Math.max(24, c.top - h.top + 56);
+    line.style.cssText = `position:fixed;top:${top}px;height:${height}px;width:2px;left:${c.right - 1}px;background:#e10600;z-index:20;pointer-events:none`;
+    document.body.appendChild(line);
+    const x = Math.max(0, Math.floor(h.left - 8));
+    const y = Math.max(0, Math.floor(h.top - 10));
+    const right = Math.min(window.innerWidth, Math.ceil(c.right + 10));
+    const bottom = Math.min(window.innerHeight, Math.ceil(c.top + 52));
+    return { x, y, width: right - x, height: bottom - y };
+  });
+  await page.screenshot({ path: `${REPORTS}/month-heading-align.png`, clip: box });
+  await page.evaluate(() => document.querySelector('[data-align-guide]')?.remove());
 }
 
 async function assertNoFocusZoom(page) {
@@ -2463,6 +2567,64 @@ async function main() {
     await press(page, '[data-action="toggle-chart"]');
     await page.waitForFunction(() => document.querySelector('[data-action="toggle-chart"]')?.textContent.trim() === 'Show all');
     await page.evaluate(() => {
+      const saved = JSON.parse(localStorage.getItem('figure-cap.v1'));
+      const oct = saved.purchases.find((item) => item.id === 'oct');
+      oct.price = 721.82;
+      oct.originalAmount = 721.82;
+      saved.wishlist = [{
+        id: 'wish-align',
+        name: 'Shockwave',
+        price: 180,
+        priority: 'really',
+        originalAmount: 180,
+        currency: 'MYR',
+        addedAt: '2026-10-01T00:00:00.000Z'
+      }];
+      saved.forSale = [{
+        id: 'sale-align',
+        name: 'Ravage',
+        brand: 'Blokees',
+        series: 'Wheels',
+        condition: 'MISB',
+        status: 'listed',
+        price: 90,
+        originalAmount: 90,
+        currency: 'MYR',
+        createdAt: '2026-10-01T00:00:00.000Z',
+        updatedAt: '2026-10-01T00:00:00.000Z'
+      }];
+      localStorage.setItem('figure-cap.v1', JSON.stringify(saved));
+      window.__figureCap.setNow('2026-10-26T04:00:00Z');
+    });
+    await page.waitForFunction(() => document.querySelector('.month-group .item-top p')?.textContent.includes('721.82'));
+    for (const mode of ['light', 'dark']) {
+      await page.evaluate((next) => {
+        localStorage.setItem('figure-cap.theme', next);
+        document.documentElement.dataset.mode = next;
+        document.documentElement.dataset.theme = next;
+      }, mode);
+      for (const width of [320, 390, 430]) {
+        await page.setViewport({ width, height: 844, isMobile: true, hasTouch: true, deviceScaleFactor: 2 });
+        await go(page, '#entries', '.month-group');
+        await assertAlignedHeaders(page);
+        await go(page, '#home', '#budget-bar');
+        await assertAlignedHeaders(page);
+        await go(page, '#wish', '#wish-list article');
+        await assertAlignedHeaders(page);
+        await go(page, '#plan', 'label.pick');
+        await assertAlignedHeaders(page);
+        await go(page, '#sell', '[data-id="sale-align"]');
+        await assertAlignedHeaders(page);
+        if (mode === 'light' && width === 390) {
+          await go(page, '#entries', '.month-group');
+          await assertNoOverflow(page);
+          await shootMonthAlign(page);
+        }
+      }
+    }
+    await page.setViewport({ width: 390, height: 844, isMobile: true, hasTouch: true, deviceScaleFactor: 2 });
+    await go(page, '#entries', '.month-group');
+    await page.evaluate(() => {
       localStorage.setItem('figure-cap.v1', JSON.stringify({
         settings: { monthlyCap: 400, rollover: false, overspendPayback: true, trackingStart: '2026-10', syncUrl: '' },
         purchases: [{
@@ -2491,6 +2653,93 @@ async function main() {
       document.documentElement.dataset.mode = 'light';
       document.documentElement.dataset.theme = 'light';
     });
+
+    const shellSession = await page.createCDPSession();
+    await shellSession.send('Emulation.setDeviceMetricsOverride', {
+      width: 390,
+      height: 785,
+      deviceScaleFactor: 2,
+      mobile: true,
+      screenWidth: 390,
+      screenHeight: 844
+    });
+    await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+    await page.evaluate(() => {
+      Object.defineProperty(navigator, 'standalone', { configurable: true, get: () => true });
+      window.__figureCapFitShell();
+    });
+    await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+    const shortShell = await page.evaluate(() => {
+      const nav = document.querySelector('.nav').getBoundingClientRect();
+      const app = document.querySelector('.app').getBoundingClientRect();
+      const root = document.documentElement;
+      return {
+        standalone: root.classList.contains('standalone'),
+        appH: getComputedStyle(root).getPropertyValue('--app-h').trim(),
+        navBottom: nav.bottom,
+        appBottom: app.bottom,
+        innerHeight: window.innerHeight,
+        screenHeight: window.screen.height,
+        navPosition: getComputedStyle(document.querySelector('.nav')).position
+      };
+    });
+    assert.equal(shortShell.standalone, true, JSON.stringify(shortShell));
+    assert.equal(shortShell.navPosition, 'relative', JSON.stringify(shortShell));
+    assert.equal(shortShell.screenHeight, 844, JSON.stringify(shortShell));
+    assert.ok(shortShell.innerHeight <= 844 - 50, JSON.stringify(shortShell));
+    assert.equal(shortShell.appH, '844px', JSON.stringify(shortShell));
+    assert.ok(Math.abs(shortShell.navBottom - 844) < 2, JSON.stringify(shortShell));
+    assert.ok(Math.abs(shortShell.appBottom - 844) < 2, JSON.stringify(shortShell));
+    await go(page, '#log', '#field-name');
+    await page.focus('#field-name');
+    await shellSession.send('Emulation.setDeviceMetricsOverride', {
+      width: 390,
+      height: 500,
+      deviceScaleFactor: 2,
+      mobile: true,
+      screenWidth: 390,
+      screenHeight: 844
+    });
+    await page.evaluate(() => new Promise((resolve) => setTimeout(resolve, 50)));
+    const whileTyping = await page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--app-h').trim());
+    assert.equal(whileTyping, '844px');
+    await page.evaluate(() => document.activeElement?.blur());
+    await shellSession.send('Emulation.setDeviceMetricsOverride', {
+      width: 390,
+      height: 785,
+      deviceScaleFactor: 2,
+      mobile: true,
+      screenWidth: 390,
+      screenHeight: 844
+    });
+    await page.evaluate(() => new Promise((resolve) => setTimeout(resolve, 50)));
+    const afterKeys = await page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--app-h').trim());
+    assert.equal(afterKeys, '844px');
+    await page.evaluate(() => {
+      Object.defineProperty(navigator, 'standalone', { configurable: true, get: () => false });
+      window.__figureCapFitShell();
+    });
+    await shellSession.send('Emulation.clearDeviceMetricsOverride');
+    await page.setViewport({ width: 390, height: 844, isMobile: true, hasTouch: true, deviceScaleFactor: 2 });
+    await page.evaluate(() => window.__figureCapFitShell());
+
+    await page.goto(`${BASE}?diag=1#settings`, { waitUntil: 'networkidle0' });
+    await page.waitForSelector('#shell-diag');
+    const diag = await page.evaluate(() => {
+      const el = document.getElementById('shell-diag');
+      const style = getComputedStyle(el);
+      return { text: el.textContent, size: style.fontSize, weight: style.fontWeight };
+    });
+    assert.match(diag.text, /inner \d+/);
+    assert.match(diag.text, /client \d+/);
+    assert.match(diag.text, /screen \d+/);
+    assert.match(diag.text, /vv \d+/);
+    assert.match(diag.text, /safe \d+\/\d+\/\d+\/\d+/);
+    assert.match(diag.text, /nav \d+/);
+    assert.equal(diag.size, '15px');
+    assert.ok(diag.weight === '400' || diag.weight === 'normal');
+    await page.goto(`${BASE}#settings`, { waitUntil: 'networkidle0' });
+    assert.equal(await page.$('#shell-diag'), null);
 
     const sw = await page.evaluate(async () => {
       const reg = await navigator.serviceWorker.ready;

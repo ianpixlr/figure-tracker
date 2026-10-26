@@ -123,6 +123,9 @@ export function start() {
   document.addEventListener('focusin', onFieldFocus);
   document.addEventListener('keydown', onKeyDown);
   window.addEventListener('hashchange', () => render());
+  window.addEventListener('resize', refreshShellDiag);
+  window.addEventListener('orientationchange', refreshShellDiag);
+  if (window.visualViewport) window.visualViewport.addEventListener('resize', refreshShellDiag);
   const dialog = document.getElementById('dialog');
   dialog.addEventListener('click', (event) => {
     if (event.target === dialog) closeDialog();
@@ -163,6 +166,7 @@ export function render() {
     chartExpanded = false;
     scrollPageToTop();
   }
+  refreshShellDiag();
 }
 
 function scrollPageToTop() {
@@ -1011,6 +1015,7 @@ function settingsView(data, corrupt) {
   return `
     <section class="settings-page">
       <h2>Settings</h2>
+      ${shellDiagSlot()}
       ${corrupt ? '<p class="banner" id="corrupt-note">Saved data on this device could not be read.</p>' : ''}
       <form class="panel" id="settings-form" novalidate>
         <div class="setting" data-edge>
@@ -1062,6 +1067,31 @@ function settingsView(data, corrupt) {
       </section>
     </section>
   `;
+}
+
+function shellDiagSlot() {
+  if (new URLSearchParams(location.search).get('diag') !== '1') return '';
+  return '<p class="meta" id="shell-diag"></p>';
+}
+
+function shellDiagText() {
+  const probe = document.createElement('div');
+  probe.style.cssText = 'position:absolute;visibility:hidden;pointer-events:none;padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left)';
+  document.body.appendChild(probe);
+  const style = getComputedStyle(probe);
+  const insets = [style.paddingTop, style.paddingRight, style.paddingBottom, style.paddingLeft]
+    .map((value) => String(Math.round(parseFloat(value) || 0)));
+  probe.remove();
+  const nav = document.querySelector('.nav');
+  const navBottom = nav ? Math.round(nav.getBoundingClientRect().bottom) : 0;
+  const vv = window.visualViewport ? Math.round(window.visualViewport.height) : 0;
+  return `inner ${window.innerHeight} · client ${document.documentElement.clientHeight} · screen ${window.screen.height} · vv ${vv} · safe ${insets.join('/')} · nav ${navBottom}`;
+}
+
+function refreshShellDiag() {
+  const slot = document.getElementById('shell-diag');
+  if (!slot) return;
+  slot.textContent = shellDiagText();
 }
 
 function settingsPreview(settings, purchases) {
