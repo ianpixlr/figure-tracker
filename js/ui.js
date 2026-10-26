@@ -20,7 +20,6 @@ import {
   PURCHASE_CONDITIONS,
   SALE_CONDITIONS,
   SALE_STATUSES,
-  boughtAsLabel,
   categoryError,
   derivedPurchaseStatus,
   normalizeFigureType,
@@ -666,11 +665,6 @@ function groupHtml(group, offset, purchases) {
 }
 
 function purchaseCard(purchase, index) {
-  const bits = [formatDay(purchase.date)];
-  if (purchase.boughtAs === 'preorder') bits.push(boughtAsLabel('preorder'));
-  if (purchase.brand) bits.push(purchase.brand);
-  if (purchase.series) bits.push(purchase.series);
-  const foreign = foreignNote(purchase);
   const preorder = preorderNote(purchase);
   const pay = purchase.boughtAs === 'preorder' && purchase.preorderStatus === 'deposit paid'
     ? `<a class="btn btn-primary" href="#edit/${encodeURIComponent(purchase.id)}">Pay balance</a>`
@@ -685,12 +679,11 @@ function purchaseCard(purchase, index) {
         </div>
         <a class="arrow" href="#edit/${encodeURIComponent(purchase.id)}" aria-label="Edit ${esc(purchase.name)}">${ARROW}</a>
       </div>
+      ${identityMeta([formatDay(purchase.date), purchase.brand, purchase.series])}
       <h3 data-edge>${esc(purchase.name)}</h3>
       <p class="block-value" data-edge>${formatRM(figureAmount(purchase))}</p>
-      <p class="meta" data-edge>${withAmounts(bits.join(' · '))}</p>
-      ${foreign ? `<p class="meta" data-edge>${withAmounts(foreign)}</p>` : ''}
+      ${sourceLine(purchase)}
       ${preorder ? `<p class="meta money-note" data-edge>${withAmounts(preorder)}</p>` : ''}
-      ${purchase.shop ? `<p class="meta" data-edge>${esc(purchase.shop)}</p>` : ''}
       ${purchase.notes ? `<p class="note" data-edge>${withAmounts(purchase.notes)}</p>` : ''}
       <div class="btn-row">
         ${pay}
@@ -698,6 +691,25 @@ function purchaseCard(purchase, index) {
       </div>
     </article>
   `;
+}
+
+function identityMeta(parts) {
+  const bits = parts.map((part) => String(part || '').trim()).filter(Boolean);
+  if (!bits.length) return '';
+  return `<p class="meta" data-edge>${withAmounts(bits.join(' · '))}</p>`;
+}
+
+function sourceLine(item) {
+  const bits = [foreignNote(item), String(item?.shop || '').trim()].filter(Boolean);
+  if (!bits.length) return '';
+  return `<p class="meta" data-edge>${nowrapForeign(withAmounts(bits.join(' · ')))}</p>`;
+}
+
+function nowrapForeign(html) {
+  return html.replace(
+    /(CN¥|HK\$|US\$|S\$|¥|₩|€|£)[\d,]+(?:\.\d+)?|\b[A-Z]{3} [\d,]+(?:\.\d+)?/g,
+    (match) => `<span class="amt">${match}</span>`
+  );
 }
 
 function preorderNote(purchase) {
@@ -766,8 +778,8 @@ function wishList(model) {
       </div>
       <h3 data-edge>${esc(item.name)}</h3>
       <p class="block-value" data-edge>${formatRM(item.price)}</p>
+      ${sourceLine(item)}
       <p class="meta" data-edge>${withAmounts(item.fitLabel)}</p>
-      ${foreignNote(item) ? `<p class="meta" data-edge>${esc(foreignNote(item))}</p>` : ''}
       <div class="btn-row">
         <button class="btn btn-primary" type="button" data-action="log-wish" data-id="${esc(item.id)}">Log purchase</button>
         <button class="btn btn-ghost" type="button" data-action="remove-wish" data-id="${esc(item.id)}" aria-label="Remove ${esc(item.name)}">Remove</button>
@@ -887,8 +899,10 @@ function saleCard(item, index) {
         <div class="tags"><span class="tag">${esc(item.condition)}</span><span class="tag">${esc(saleStatusLabel(item.status))}</span></div>
         <a class="arrow" href="#edit-sale/${encodeURIComponent(item.id)}" aria-label="Edit ${esc(item.name)}">${ARROW}</a>
       </div>
+      ${identityMeta([item.brand, item.series])}
       <h3 data-edge>${esc(item.name)}</h3>
       <p class="block-value" data-edge>${formatRM(item.price)}</p>
+      ${sourceLine(item)}
       ${searchPills(item)}
       <div class="check" data-check-for="${esc(item.id)}">${priceCheckLine(item, cachedPriceChecks())}</div>
       <div class="btn-row">
