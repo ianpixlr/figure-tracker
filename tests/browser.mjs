@@ -2670,30 +2670,58 @@ async function main() {
     assert.ok(typeGap.labels.includes('1/6') && typeGap.labels.includes('1/12'), JSON.stringify(typeGap));
     assert.equal(typeGap.current, 'Log');
     await go(page, '#home', '#balances-card');
-    await page.click('#balances-card .arrow');
-    await page.waitForSelector('#preorder-filter');
-    const openOnly = await page.evaluate(() => ({
-      names: [...document.querySelectorAll('.month-group article h3')].map((el) => el.textContent.trim()),
-      showAll: document.querySelector('#preorder-filter a')?.textContent.trim() || '',
-      href: document.querySelector('#preorder-filter a')?.getAttribute('href') || '',
-      arrows: document.querySelectorAll('.month-group .arrow').length,
-      label: document.querySelector('#preorder-filter .meta')?.textContent.trim() || ''
-    }));
-    assert.deepEqual(openOnly.names, ['Asuka']);
-    assert.equal(openOnly.showAll, 'Show all');
-    assert.equal(openOnly.href, '#entries');
-    assert.equal(openOnly.arrows, 0);
-    assert.equal(openOnly.label, 'Open pre-orders');
     await page.setViewport({ width: 390, height: 844, isMobile: true, hasTouch: true, deviceScaleFactor: 2 });
+    await page.click('#balances-card .arrow');
+    await page.waitForSelector('#entries-scope');
+    const openOnly = await page.evaluate(() => ({
+      hash: location.hash,
+      names: [...document.querySelectorAll('.month-group article h3')].map((el) => el.textContent.trim()),
+      selected: document.querySelector('#entries-scope a[aria-selected="true"]')?.textContent.trim() || '',
+      options: [...document.querySelectorAll('#entries-scope a')].map((el) => ({
+        text: el.textContent.trim(),
+        href: el.getAttribute('href')
+      })),
+      showAll: document.body.textContent.includes('Show all') && Boolean(document.getElementById('preorder-filter')),
+      chart: Boolean(document.getElementById('chart')),
+      types: Boolean(document.getElementById('category-totals')),
+      arrows: document.querySelectorAll('.month-group .arrow').length,
+      empty: document.querySelector('.empty')?.textContent.trim() || ''
+    }));
+    assert.equal(openOnly.hash, '#entries/preorders');
+    assert.deepEqual(openOnly.names, ['Asuka']);
+    assert.equal(openOnly.selected, 'Pre-orders');
+    assert.deepEqual(openOnly.options, [
+      { text: 'All', href: '#entries' },
+      { text: 'Pre-orders', href: '#entries/preorders' }
+    ]);
+    assert.equal(openOnly.showAll, false);
+    assert.equal(openOnly.chart, false);
+    assert.equal(openOnly.types, false);
+    assert.equal(openOnly.arrows, 0);
+    assert.equal(openOnly.empty, '');
+    await page.evaluate(() => { document.getElementById('main').scrollTop = 0; });
+    await page.screenshot({ path: `${REPORTS}/entries-preorders.png` });
+    await page.click('#entries-scope a[href="#entries"]');
+    await page.waitForFunction(() => location.hash === '#entries' && document.querySelector('[data-id="rei"]') && document.getElementById('chart') && document.getElementById('category-totals'));
+    const allEntries = await page.evaluate(() => ({
+      selected: document.querySelector('#entries-scope a[aria-selected="true"]')?.textContent.trim() || '',
+      chart: Boolean(document.getElementById('chart')),
+      types: Boolean(document.getElementById('category-totals'))
+    }));
+    assert.equal(allEntries.selected, 'All');
+    assert.equal(allEntries.chart, true);
+    assert.equal(allEntries.types, true);
     await page.evaluate(() => {
       const scroller = document.getElementById('main');
-      const bar = document.getElementById('preorder-filter');
+      const target = document.getElementById('category-totals');
       const origin = scroller.getBoundingClientRect().top;
-      scroller.scrollTop = Math.max(0, bar.getBoundingClientRect().top - origin + scroller.scrollTop - 8);
+      scroller.scrollTop = Math.max(0, target.getBoundingClientRect().top - origin + scroller.scrollTop - 12);
     });
-    await page.screenshot({ path: `${REPORTS}/preorders.png` });
-    await page.click('#preorder-filter a');
-    await page.waitForFunction(() => location.hash === '#entries' && document.querySelector('[data-id="rei"]') && !document.getElementById('preorder-filter'));
+    await page.screenshot({ path: `${REPORTS}/entries-all.png` });
+    await page.goBack();
+    await page.waitForFunction(() => location.hash === '#entries/preorders' && !document.getElementById('chart') && document.querySelector('#entries-scope a[aria-selected="true"]')?.textContent.trim() === 'Pre-orders');
+    await page.goForward();
+    await page.waitForFunction(() => location.hash === '#entries' && document.getElementById('chart') && document.querySelector('[data-id="rei"]'));
     await go(page, '#home', '#balances-card');
     await page.evaluate(() => {
       const scroller = document.getElementById('main');
@@ -2702,6 +2730,24 @@ async function main() {
       scroller.scrollTop = Math.max(0, card.getBoundingClientRect().top - origin + scroller.scrollTop - 8);
     });
     await page.screenshot({ path: `${REPORTS}/paid-totals-home.png` });
+
+    await page.evaluate(() => {
+      const data = JSON.parse(localStorage.getItem('figure-cap.v1'));
+      data.purchases = data.purchases.filter((row) => row.preorderStatus !== 'deposit paid');
+      localStorage.setItem('figure-cap.v1', JSON.stringify(data));
+    });
+    await go(page, '#entries', '#entries-scope');
+    await go(page, '#entries/preorders', '#entries-scope');
+    const noneOpen = await page.evaluate(() => ({
+      empty: document.querySelector('.empty')?.textContent.trim() || '',
+      names: [...document.querySelectorAll('.month-group article h3')].map((el) => el.textContent.trim()),
+      chart: Boolean(document.getElementById('chart')),
+      selected: document.querySelector('#entries-scope a[aria-selected="true"]')?.textContent.trim() || ''
+    }));
+    assert.equal(noneOpen.empty, 'No open pre-orders');
+    assert.deepEqual(noneOpen.names, []);
+    assert.equal(noneOpen.chart, false);
+    assert.equal(noneOpen.selected, 'Pre-orders');
 
     await page.evaluate(() => {
       localStorage.setItem('figure-cap.v1', JSON.stringify({
@@ -3120,6 +3166,7 @@ async function main() {
       const toggle = document.querySelector('[data-action="toggle-chart"]');
       const chart = document.getElementById('chart');
       const types = document.getElementById('category-totals');
+      const scope = document.getElementById('entries-scope');
       const group = document.querySelector('.month-group');
       const header = group.querySelector('.item-top');
       const card = group.querySelector('article');
@@ -3130,7 +3177,8 @@ async function main() {
         toggle: toggle ? toggle.textContent.trim() : '',
         expanded: toggle?.getAttribute('aria-expanded') || '',
         gap: types.getBoundingClientRect().top - chart.getBoundingClientRect().bottom,
-        above: group.getBoundingClientRect().top - types.getBoundingClientRect().bottom,
+        scopeGap: scope.getBoundingClientRect().top - types.getBoundingClientRect().bottom,
+        above: group.getBoundingClientRect().top - scope.getBoundingClientRect().bottom,
         below: card.getBoundingClientRect().top - header.getBoundingClientRect().bottom,
         nameWeight: getComputedStyle(label).fontWeight,
         amountWeight: getComputedStyle(amount).fontWeight,
@@ -3143,6 +3191,7 @@ async function main() {
     assert.equal(collapsed.toggle, 'Show all');
     assert.equal(collapsed.expanded, 'false');
     assert.ok(collapsed.gap >= 8 && collapsed.gap <= 14, JSON.stringify(collapsed));
+    assert.ok(collapsed.scopeGap >= 8 && collapsed.scopeGap <= 14, JSON.stringify(collapsed));
     assert.ok(collapsed.above >= 30 && collapsed.above <= 36, JSON.stringify(collapsed));
     assert.ok(collapsed.below >= 8 && collapsed.below <= 14, JSON.stringify(collapsed));
     assert.ok(collapsed.nameWeight === '700' || collapsed.nameWeight === 'bold', JSON.stringify(collapsed));

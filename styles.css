@@ -730,9 +730,7 @@ html[data-mode="dark"] .block.yellow {
   margin-bottom: 10px;
 }
 
-#preorder-filter .meta { margin: 0; }
-
-#preorder-filter .text-btn { margin: 0 0 0 auto; }
+#category-totals + #entries-scope { margin-top: 10px; }
 
 .amt,
 .block-value,

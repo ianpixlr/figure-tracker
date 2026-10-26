@@ -621,26 +621,10 @@ function entriesView(data, route = {}) {
   const listed = preordersOnly ? openPreorders(filtered) : filtered;
   const groups = groupByMonth(listed);
   const active = activeFilters();
-  const preorderBar = preordersOnly ? `
-    <div class="tools" id="preorder-filter">
-      <p class="meta">Open pre-orders</p>
-      <a class="text-btn" href="#entries">Show all</a>
-    </div>
-  ` : '';
   const empty = preordersOnly
-    ? 'No open pre-orders.'
+    ? 'No open pre-orders'
     : (data.purchases.length ? 'Nothing matches these filters.' : 'No purchases yet.');
-  return `
-    <div class="tools">
-      <label class="search">
-        ${SEARCH_ICON}
-        <input id="field-search" type="search" inputmode="search" enterkeyhint="search" placeholder="Search purchases" aria-label="Search purchases" value="${esc(filters.q)}" autocomplete="off" autocapitalize="off" spellcheck="false">
-      </label>
-      <button class="btn btn-ghost filter-btn" type="button" data-action="open-filters">Filter${active.length ? ` <span class="badge">${active.length}</span>` : ''}</button>
-    </div>
-    ${active.length ? `<div class="chips" aria-label="Active filters">${active.map(([key, label]) => `
-      <button type="button" data-filter="${esc(key)}" data-value="">${esc(label)} <span aria-hidden="true">×</span></button>
-    `).join('')}</div>` : ''}
+  const summary = preordersOnly ? '' : `
     <section class="panel" id="chart">
       <h3>Monthly spend</h3>
       <p class="meta">Every purchase, measured against that month's cap.</p>
@@ -657,8 +641,23 @@ function entriesView(data, route = {}) {
           </div>
         `).join('')}
       </div>
-    </article>
-    ${preorderBar}
+    </article>`;
+  return `
+    <div class="tools">
+      <label class="search">
+        ${SEARCH_ICON}
+        <input id="field-search" type="search" inputmode="search" enterkeyhint="search" placeholder="Search purchases" aria-label="Search purchases" value="${esc(filters.q)}" autocomplete="off" autocapitalize="off" spellcheck="false">
+      </label>
+      <button class="btn btn-ghost filter-btn" type="button" data-action="open-filters">Filter${active.length ? ` <span class="badge">${active.length}</span>` : ''}</button>
+    </div>
+    ${active.length ? `<div class="chips" aria-label="Active filters">${active.map(([key, label]) => `
+      <button type="button" data-filter="${esc(key)}" data-value="">${esc(label)} <span aria-hidden="true">×</span></button>
+    `).join('')}</div>` : ''}
+    ${summary}
+    <div class="chips segment" id="entries-scope" role="tablist" aria-label="Entries">
+      <a class="chip" href="#entries" role="tab" aria-selected="${!preordersOnly}">All</a>
+      <a class="chip" href="#entries/preorders" role="tab" aria-selected="${preordersOnly}">Pre-orders</a>
+    </div>
     ${groups.length ? renderGroups(groups, data.purchases) : `<p class="empty">${empty}</p>`}
   `;
 }
