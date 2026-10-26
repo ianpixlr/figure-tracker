@@ -51,7 +51,7 @@ A GitHub Pages site cannot sign in to Sheets, so `apps-script/Code.gs` is the sm
 2. Paste in `apps-script/Code.gs`. Leave `SPREADSHEET_ID` as it is. `SYNC_TOKEN` must match `SYNC_TOKEN` in `js/sync.js`.
 3. Deploy → New deployment → Web app. Execute as **Me**. Who has access: **Anyone**.
 4. Copy the URL that ends in `/exec`.
-5. Put that URL in `DEFAULT_SYNC_URL` in `js/sync.js` (replace `PASTE_WEB_APP_URL`), or paste it into Settings on the phone.
+5. `DEFAULT_SYNC_URL` in `js/sync.js` already points at the deployed web app, so sync is on without pasting anything. Paste a different `/exec` URL into Settings only if you deploy your own copy.
 
 The script repairs a frozen bold header row on each tab, formats ringgit columns, and formats dates. The app posts with `Content-Type: text/plain` so the browser does not send a preflight. Random visitors cannot write without the token.
 

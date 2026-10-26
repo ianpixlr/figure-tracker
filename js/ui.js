@@ -712,7 +712,7 @@ function settingsView(data, corrupt) {
         </label>
         <label class="field" for="field-sync">Sheet sync URL
           <input id="field-sync" name="syncUrl" inputmode="url" autocomplete="off" placeholder="https://script.google.com/macros/s/DEPLOYMENT_ID/exec" value="${esc(syncFieldValue(settings))}">
-          <span class="meta">Leave blank to use the built-in address. Sync stays off until that address is a real web app URL. Rates come from the European Central Bank via Frankfurter, with a cached rate when you are offline.</span>
+          <span class="meta">Leave blank to use the built-in sheet. A different web app URL replaces it. Rates come from the European Central Bank via Frankfurter, with a cached rate when you are offline.</span>
         </label>
         <p class="meta" id="settings-preview">${esc(preview)}</p>
         <p class="form-error" role="alert" hidden></p>

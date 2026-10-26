@@ -1,6 +1,6 @@
 // Figure Cap sheet sync.
 // Deploy as a web app: Execute as me, Who has access: Anyone.
-// Then paste the /exec URL into DEFAULT_SYNC_URL in js/sync.js.
+// DEFAULT_SYNC_URL in js/sync.js points at the deployed /exec URL.
 // SYNC_TOKEN must match js/sync.js. The spreadsheet id is Ian's sheet.
 
 var SPREADSHEET_ID = '1T6r59M_WNSqRt6nfQhOyVwyHVuQtlvi6JabgwLnfk60';

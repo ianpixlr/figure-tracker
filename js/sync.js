@@ -1,15 +1,12 @@
 // Sheet sync. The page keeps localStorage as the copy it edits.
 // Posts use text/plain so the Apps Script web app does not require a CORS preflight.
-// DEFAULT_SYNC_URL stays a placeholder until the script is deployed.
+// The deployed web app is the default, so a new phone syncs without pasting a URL.
 
 import { priorityLabel } from './budget.js';
 import { boughtAsLabel, figureTypeLabel, purchaseStatusLabel, saleStatusLabel } from './catalog.js';
 import { moodLabel } from './store.js';
 
-// PLACEHOLDER: replace PASTE_WEB_APP_URL after you deploy apps-script/Code.gs
-// as a web app (execute as you, accessible to anyone). Example:
-// https://script.google.com/macros/s/DEPLOYMENT_ID/exec
-export const DEFAULT_SYNC_URL = 'PASTE_WEB_APP_URL';
+export const DEFAULT_SYNC_URL = 'https://script.google.com/macros/s/AKfycbzyj824VHT6WrJLZhHw-ufaf4tAT6BkvqQa3Ck_VloV2kV5vnP8JPpr3XKrOeAdzfjX4g/exec';
 
 // Shared with apps-script/Code.gs. Change both before you deploy if you want a different token.
 export const SYNC_TOKEN = 'fc-sync-4e91c7b2';

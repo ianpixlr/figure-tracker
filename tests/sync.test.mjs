@@ -14,6 +14,7 @@ import {
   flushQueue,
   isConfiguredUrl,
   purchaseRow,
+  resolveSyncUrl,
   readQueue,
   resetSyncForTests,
   saleRow,
@@ -57,10 +58,15 @@ function samplePurchase() {
   };
 }
 
-test('the placeholder URL is not treated as configured', () => {
-  assert.match(DEFAULT_SYNC_URL, /PASTE_/);
-  assert.equal(isConfiguredUrl(DEFAULT_SYNC_URL), false);
+test('the deployed web app is the default sync address', () => {
+  assert.equal(
+    DEFAULT_SYNC_URL,
+    'https://script.google.com/macros/s/AKfycbzyj824VHT6WrJLZhHw-ufaf4tAT6BkvqQa3Ck_VloV2kV5vnP8JPpr3XKrOeAdzfjX4g/exec'
+  );
+  assert.equal(isConfiguredUrl(DEFAULT_SYNC_URL), true);
+  assert.equal(resolveSyncUrl({ syncUrl: '' }), DEFAULT_SYNC_URL);
   assert.equal(isConfiguredUrl(''), false);
+  assert.equal(isConfiguredUrl('PASTE_WEB_APP_URL'), false);
   assert.equal(isConfiguredUrl('https://script.google.com/macros/s/abc/exec'), true);
   assert.match(script, new RegExp(`var SYNC_TOKEN = '${SYNC_TOKEN}'`));
   assert.match(script, /1T6r59M_WNSqRt6nfQhOyVwyHVuQtlvi6JabgwLnfk60/);

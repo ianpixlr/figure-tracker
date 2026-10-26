@@ -3,6 +3,7 @@
 import assert from 'node:assert/strict';
 import { mkdir } from 'node:fs/promises';
 import puppeteer from 'puppeteer-core';
+import { DEFAULT_SYNC_URL } from '../js/sync.js';
 
 const BASE = 'http://127.0.0.1:8765/';
 const SHOTS = '/tmp/figure-cap-shots';
@@ -133,6 +134,15 @@ async function main() {
       if (url.startsWith('blob:') || url.startsWith('data:') || url.startsWith('chrome-extension:')) return;
       const host = new URL(url).hostname;
       if (host !== '127.0.0.1' && host !== 'localhost') external.push(url);
+      if (url.includes('script.google.com') || url.includes('script.googleusercontent.com')) {
+        request.respond({
+          status: 200,
+          contentType: 'application/json',
+          headers: { 'Access-Control-Allow-Origin': '*' },
+          body: JSON.stringify({ ok: true, purchases: [], wishlist: [], forSale: [], priceChecks: [] })
+        });
+        return;
+      }
       if (url.includes('api.frankfurter.app') || url.includes('open.er-api.com')) {
         const dated = url.match(/(\d{4}-\d{2}-\d{2})/);
         request.respond({
@@ -193,15 +203,15 @@ async function main() {
     assert.equal(await page.$eval('#field-wait', (el) => el.value), '0');
     assert.equal(await page.$eval('#field-cap', (el) => el.value), '400.00');
     assert.equal(await page.$eval('#field-rollover', (el) => el.checked), false);
-    assert.equal(await page.$eval('#field-sync', (el) => el.value), '');
-    assert.match(await text(page, '#sync-status'), /Sync off/);
+    assert.equal(await page.$eval('#field-sync', (el) => el.value), DEFAULT_SYNC_URL);
+    await page.waitForFunction(() => !/Sync off/.test(document.getElementById('sync-status').textContent));
     await page.click('#sync-all');
     await page.waitForFunction(() => {
       const toast = document.getElementById('toast');
-      return toast && !toast.hidden && /web app URL/.test(toast.textContent);
+      return toast && !toast.hidden && toast.textContent.includes('Synced');
     });
     await typeInto(page, '#field-cap', 'abc');
-    await page.click('#settings-form button[type="submit"]');
+    await page.$eval('#settings-form button[type="submit"]', (button) => button.click());
     await page.waitForSelector('.form-error:not([hidden])');
     assert.match(await text(page, '.form-error'), /Enter a cap/);
 
@@ -388,8 +398,11 @@ async function main() {
 
     const fxHosts = external.filter((url) => url.includes('frankfurter') || url.includes('er-api'));
     assert.ok(fxHosts.length > 0, 'expected a rate request');
-    const unexpected = external.filter((url) => !url.includes('frankfurter') && !url.includes('er-api'));
+    const unexpected = external.filter((url) => (
+      !url.includes('frankfurter') && !url.includes('er-api') && !url.includes('script.google')
+    ));
     assert.deepEqual(unexpected, []);
+    assert.ok(external.some((url) => url.includes('script.google.com')));
 
     await page.emulateMediaFeatures([{ name: 'prefers-color-scheme', value: 'dark' }]);
     await page.reload({ waitUntil: 'networkidle0' });
