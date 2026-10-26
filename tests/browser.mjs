@@ -267,6 +267,57 @@ async function press(page, selector) {
   await page.$eval(selector, (el) => el.click());
 }
 
+function chipLabelList() {
+  return `[...document.querySelectorAll('[data-type-chips] .chip')].map((el) => (el.querySelector(':scope > span')?.textContent || el.textContent).trim())`;
+}
+
+async function assertSettingsLayout(page) {
+  const layout = await page.evaluate(() => {
+    const gap = (a, b) => Math.round(b.getBoundingClientRect().top - a.getBoundingClientRect().bottom);
+    const form = document.getElementById('settings-form');
+    const sync = document.getElementById('sync-all');
+    const backup = document.getElementById('backup');
+    const groups = [...form.querySelectorAll(':scope > .setting')];
+    const checks = [...form.querySelectorAll('.checks .checkline')];
+    const capNote = form.querySelector('label[for="field-cap"] .meta');
+    const syncNote = form.querySelector('label[for="field-sync"] .meta');
+    const checkNote = checks[0]?.querySelector('.meta');
+    const syncInput = document.getElementById('field-sync');
+    const syncBox = syncInput.getBoundingClientRect();
+    const fieldBox = syncInput.closest('.field').getBoundingClientRect();
+    const capInput = document.getElementById('field-cap').getBoundingClientRect();
+    const box = checks[0].querySelector('input').getBoundingClientRect();
+    return {
+      cardGap: gap(form, sync),
+      backupGap: gap(sync, backup),
+      groupGaps: groups.slice(1).map((el, index) => gap(groups[index], el)),
+      checkGap: gap(checks[0], checks[1]),
+      capCase: getComputedStyle(capNote).textTransform,
+      syncCase: getComputedStyle(syncNote).textTransform,
+      checkCase: getComputedStyle(checkNote).textTransform,
+      capTrack: getComputedStyle(capNote).letterSpacing,
+      syncClip: getComputedStyle(syncInput).textOverflow,
+      syncOverflow: getComputedStyle(syncInput).overflowX,
+      syncInside: syncBox.right <= fieldBox.right + 1 && syncBox.left >= fieldBox.left - 1,
+      checksAlign: Math.abs(box.left - capInput.left) <= 1,
+      categories: Boolean(document.getElementById('categories'))
+    };
+  });
+  assert.equal(layout.cardGap, 24);
+  assert.equal(layout.backupGap, 24);
+  assert.deepEqual(layout.groupGaps, [20, 20, 20]);
+  assert.equal(layout.checkGap, 14);
+  assert.equal(layout.capCase, 'none');
+  assert.equal(layout.syncCase, 'none');
+  assert.equal(layout.checkCase, 'none');
+  assert.ok(layout.capTrack === 'normal' || layout.capTrack === '0px', layout.capTrack);
+  assert.equal(layout.syncClip, 'ellipsis');
+  assert.ok(layout.syncOverflow === 'hidden' || layout.syncOverflow === 'clip', layout.syncOverflow);
+  assert.equal(layout.syncInside, true);
+  assert.equal(layout.checksAlign, true);
+  assert.equal(layout.categories, false);
+}
+
 async function showTypeExtras(page) {
   const opened = await page.evaluate(() => {
     const more = document.querySelector('details.more');
@@ -684,6 +735,7 @@ async function main() {
     assert.equal(await page.$eval('#field-cap', (el) => el.value), '400.00');
     assert.equal(await page.$eval('#field-rollover', (el) => el.checked), false);
     assert.equal(await page.$eval('#field-sync', (el) => el.value), DEFAULT_SYNC_URL);
+    await assertSettingsLayout(page);
     await page.waitForFunction(() => !/Sync off/.test(document.getElementById('sync-status').textContent));
     await press(page, '#sync-all');
     await page.waitForFunction(() => {
@@ -1323,7 +1375,7 @@ async function main() {
     });
     await go(page, '#log', '#field-name');
     await page.$eval('details.more', (el) => { el.open = true; });
-    const builtInChips = await page.evaluate(() => [...document.querySelectorAll('[data-type-chips] .chip')].map((el) => el.textContent.trim()));
+    const builtInChips = await page.evaluate(new Function(`return ${chipLabelList()};`));
     assert.deepEqual(builtInChips, ['Not set', 'Transformers', '1/12', '1/6', 'Other', 'Model Kit', '+ New']);
     await press(page, '[data-action="new-category"]');
     await page.waitForSelector('[data-new-category]:not([hidden]) input');
@@ -1340,14 +1392,14 @@ async function main() {
       const data = JSON.parse(localStorage.getItem('figure-cap.v1') || '{}');
       return data.settings?.categories?.includes('Movie');
     });
-    const customChips = await page.evaluate(() => [...document.querySelectorAll('[data-type-chips] .chip')].map((el) => el.textContent.trim()));
+    const customChips = await page.evaluate(new Function(`return ${chipLabelList()};`));
     assert.deepEqual(customChips, ['Not set', 'Transformers', '1/12', '1/6', 'Other', 'Model Kit', 'Movie', '+ New']);
     assert.equal(await page.$eval('input[name="figureType"]:checked', (el) => el.value), 'Movie');
     assert.equal(await page.$eval('[data-new-category]', (el) => el.hidden), true);
     await page.reload({ waitUntil: 'networkidle0' });
     await go(page, '#log', '#field-name');
     await page.$eval('details.more', (el) => { el.open = true; });
-    await page.waitForFunction(() => [...document.querySelectorAll('[data-type-chips] .chip')].some((el) => el.textContent.trim() === 'Movie'));
+    await page.waitForFunction(() => [...document.querySelectorAll('[data-type-chips] .chip')].some((el) => el.querySelector(':scope > span')?.textContent.trim() === 'Movie'));
     await clickLabel(page, 'Movie');
     await page.evaluate(() => {
       const scroller = document.getElementById('main');
@@ -1375,16 +1427,31 @@ async function main() {
     await press(page, '[data-action="open-filters"]');
     await page.waitForSelector('dialog[open] [data-filter="type"][data-value="Movie"]');
     await press(page, 'dialog[open] [data-action="close-dialog"]');
-    await go(page, '#settings', '#categories');
-    await page.waitForFunction(() => document.querySelector('#categories .category-list span')?.textContent === 'Movie');
+    await go(page, '#log', '#field-name');
+    await page.$eval('details.more', (el) => { el.open = true; });
+    await page.waitForSelector('[data-action="remove-category"][data-name="Movie"]');
+    const removable = await page.evaluate(() => [...document.querySelectorAll('[data-type-chips] .chip')].map((el) => ({
+      label: (el.querySelector(':scope > span')?.textContent || el.textContent).trim(),
+      remove: Boolean(el.querySelector('.chip-x'))
+    })));
+    assert.deepEqual(removable, [
+      { label: 'Not set', remove: false },
+      { label: 'Transformers', remove: false },
+      { label: '1/12', remove: false },
+      { label: '1/6', remove: false },
+      { label: 'Other', remove: false },
+      { label: 'Model Kit', remove: false },
+      { label: 'Movie', remove: true },
+      { label: '+ New', remove: false }
+    ]);
     await page.evaluate(() => {
       const scroller = document.getElementById('main');
-      const target = document.getElementById('categories');
+      const target = document.querySelector('.type-field');
       const origin = scroller.getBoundingClientRect().top;
       scroller.scrollTop = Math.max(0, target.getBoundingClientRect().top - origin + scroller.scrollTop - 8);
     });
-    await page.screenshot({ path: `${REPORTS}/types-settings-categories.png` });
-    await press(page, '[data-action="remove-category"]');
+    await page.screenshot({ path: `${REPORTS}/log-type-chips.png` });
+    await press(page, '[data-action="remove-category"][data-name="Movie"]');
     await page.waitForSelector('dialog[open]');
     assert.match(await text(page, '#dialog-title'), /Remove Movie/);
     await clickDialog(page, 'Remove');
@@ -1393,7 +1460,28 @@ async function main() {
       const optimus = data.purchases?.find((item) => item.name === 'Optimus');
       return data.settings?.categories?.length === 0 && optimus?.figureType === 'other';
     });
-    assert.equal(await page.$('#categories .category-list'), null);
+    assert.equal(await page.$('[data-name="Movie"]'), null);
+    await go(page, '#settings', '#backup');
+    assert.equal(await page.$('#categories'), null);
+    await assertSettingsLayout(page);
+    const settingsHeight = await page.evaluate(() => {
+      const main = document.getElementById('main');
+      return window.innerHeight + Math.max(0, main.scrollHeight - main.clientHeight) + 4;
+    });
+    await page.setViewport({ width: 390, height: settingsHeight, isMobile: true, hasTouch: true, deviceScaleFactor: 2 });
+    await page.evaluate(() => { document.getElementById('main').scrollTop = 0; });
+    await page.screenshot({ path: `${REPORTS}/settings-light.png` });
+    await page.evaluate(() => {
+      localStorage.setItem('figure-cap.theme', 'dark');
+      document.documentElement.dataset.mode = 'dark';
+      document.documentElement.dataset.theme = 'dark';
+    });
+    await page.screenshot({ path: `${REPORTS}/settings-dark.png` });
+    await page.evaluate(() => {
+      localStorage.setItem('figure-cap.theme', 'light');
+      document.documentElement.dataset.mode = 'light';
+      document.documentElement.dataset.theme = 'light';
+    });
 
     await page.setViewport({ width: 320, height: 844, isMobile: true, hasTouch: true, deviceScaleFactor: 2 });
     await page.evaluate(() => {
