@@ -64,8 +64,8 @@ async function assertSearchToolbar(page) {
   assert.ok(search.inputHeight >= 47, String(search.inputHeight));
   assert.ok(search.inputWidth > 80, String(search.inputWidth));
   assert.equal(search.radius, search.filterRadius);
-  assert.equal(search.border, '1px');
-  assert.equal(search.filterBorder, '1px');
+  assert.equal(search.border, '2px');
+  assert.equal(search.filterBorder, '2px');
   assert.equal(search.borderColor, search.filterBorderColor);
   assert.equal(search.appearance, 'none');
 }
@@ -754,8 +754,10 @@ async function assertAlignedHeaders(page) {
       const top = pick.querySelector('.pick-top');
       if (!top) continue;
       const pr = box(pick);
-      const padR = parseFloat(getComputedStyle(pick).paddingRight) || 0;
-      const targetRight = pr.right - padR;
+      const pickStyle = getComputedStyle(pick);
+      const padR = parseFloat(pickStyle.paddingRight) || 0;
+      const borderR = parseFloat(pickStyle.borderRightWidth) || 0;
+      const targetRight = pr.right - padR - borderR;
       const label = `pick ${top.textContent.replace(/\s+/g, ' ').trim().slice(0, 24)}`;
       const rr = box(top);
       if (Math.abs(rr.right - targetRight) > 1) problems.push(`${label} right ${round(rr.right - targetRight)}`);
@@ -950,8 +952,10 @@ async function assertSingleDividers(page) {
       }
     }
     for (const entry of document.querySelectorAll('.month-group article')) {
-      const top = parseFloat(getComputedStyle(entry).borderTopWidth) || 0;
-      if (top > 0) problems.push('entry border');
+      const style = getComputedStyle(entry);
+      const sides = ['borderTopWidth', 'borderRightWidth', 'borderBottomWidth', 'borderLeftWidth']
+        .map((key) => parseFloat(style[key]) || 0);
+      if (sides.some((width) => width !== sides[0])) problems.push('entry border');
     }
     return problems;
   });
@@ -1281,7 +1285,8 @@ async function main() {
     assert.equal(chipPaint.misb.bg, 'rgb(255, 228, 92)');
     assert.equal(chipPaint.misb.color, 'rgb(22, 22, 22)');
     assert.notEqual(chipPaint.loose.bg, 'rgb(255, 228, 92)');
-    assert.notEqual(chipPaint.order.bg, 'rgb(255, 228, 92)');
+    assert.equal(chipPaint.order.bg, 'rgb(255, 228, 92)');
+    assert.equal(chipPaint.order.color, 'rgb(22, 22, 22)');
     await clickCondition(page, 'MISB');
     assert.equal(await conditionValue(page), '');
     await page.$eval('[data-condition] input[value="MIB"]', (el) => el.closest('label').click());
@@ -1947,8 +1952,8 @@ async function main() {
       return { bg: style.backgroundColor, color: style.color, checked: input.checked };
     });
     assert.equal(darkChip.checked, true);
-    assert.equal(darkChip.bg, 'rgb(244, 244, 245)');
-    assert.equal(darkChip.color, 'rgb(20, 20, 20)');
+    assert.equal(darkChip.bg, 'rgb(255, 228, 92)');
+    assert.equal(darkChip.color, 'rgb(22, 22, 22)');
     await page.emulateMediaFeatures([{ name: 'prefers-color-scheme', value: 'light' }]);
     await page.reload({ waitUntil: 'networkidle0' });
     await page.waitForSelector('#theme-label');
@@ -1960,8 +1965,8 @@ async function main() {
       const style = getComputedStyle(input.closest('.chip'));
       return { bg: style.backgroundColor, color: style.color };
     });
-    assert.equal(lightChip.bg, 'rgb(20, 20, 20)');
-    assert.equal(lightChip.color, 'rgb(255, 255, 255)');
+    assert.equal(lightChip.bg, 'rgb(255, 228, 92)');
+    assert.equal(lightChip.color, 'rgb(22, 22, 22)');
     await page.emulateMediaFeatures([{ name: 'prefers-color-scheme', value: 'dark' }]);
     await page.reload({ waitUntil: 'networkidle0' });
     await page.waitForSelector('#theme-label');
@@ -2511,8 +2516,8 @@ async function main() {
     assert.equal(paid.tags[0].color, 'rgb(22, 22, 22)');
     assert.equal(paid.tags.find((tag) => tag.text === 'Deposit paid').bg, 'rgb(255, 228, 92)');
     assert.equal(paid.tags.find((tag) => tag.text === 'Deposit paid').color, 'rgb(22, 22, 22)');
-    assert.equal(paid.editBg, 'rgb(231, 231, 235)');
-    assert.equal(paid.editColor, 'rgb(22, 22, 22)');
+    assert.equal(paid.editBg, 'rgba(0, 0, 0, 0)');
+    assert.equal(paid.editColor, 'rgb(20, 20, 20)');
     await go(page, '#sell', 'article.block');
     assert.deepEqual(await blockTones(page), ['white', 'white']);
 
@@ -2747,10 +2752,10 @@ async function main() {
     }));
     assert.equal(openOnly.hash, '#entries/preorders');
     assert.deepEqual(openOnly.names, ['Asuka']);
-    assert.equal(openOnly.selected, 'Pre-orders');
+    assert.equal(openOnly.selected, 'Pre-orders · 1');
     assert.deepEqual(openOnly.options, [
       { text: 'All', href: '#entries' },
-      { text: 'Pre-orders', href: '#entries/preorders' }
+      { text: 'Pre-orders · 1', href: '#entries/preorders' }
     ]);
     assert.equal(openOnly.showAll, false);
     assert.equal(openOnly.chart, false);
@@ -2777,7 +2782,7 @@ async function main() {
     });
     await page.screenshot({ path: `${REPORTS}/entries-all.png` });
     await page.goBack();
-    await page.waitForFunction(() => location.hash === '#entries/preorders' && !document.getElementById('chart') && document.querySelector('#entries-scope a[aria-selected="true"]')?.textContent.trim() === 'Pre-orders');
+    await page.waitForFunction(() => location.hash === '#entries/preorders' && !document.getElementById('chart') && document.querySelector('#entries-scope a[aria-selected="true"]')?.textContent.trim() === 'Pre-orders · 1');
     await page.goForward();
     await page.waitForFunction(() => location.hash === '#entries' && document.getElementById('chart') && document.querySelector('[data-id="rei"]'));
     await go(page, '#home', '#balances-card');
@@ -2805,7 +2810,7 @@ async function main() {
     assert.equal(noneOpen.empty, 'No open pre-orders');
     assert.deepEqual(noneOpen.names, []);
     assert.equal(noneOpen.chart, false);
-    assert.equal(noneOpen.selected, 'Pre-orders');
+    assert.equal(noneOpen.selected, 'Pre-orders · 0');
 
     await page.evaluate(() => {
       localStorage.setItem('figure-cap.v1', JSON.stringify({
@@ -2956,7 +2961,8 @@ async function main() {
     assert.equal(cardOrder.fonts.price, '22px');
     const entryEdge = await page.evaluate(() => {
       const card = document.querySelector('[data-id="soundwave"]');
-      const left = card.getBoundingClientRect().left + parseFloat(getComputedStyle(card).paddingLeft);
+      const style = getComputedStyle(card);
+      const left = card.getBoundingClientRect().left + parseFloat(style.borderLeftWidth) + parseFloat(style.paddingLeft);
       return {
         arrow: Boolean(card.querySelector('.arrow')),
         head: Math.abs(card.querySelector('.card-head').getBoundingClientRect().left - left),
@@ -3013,7 +3019,7 @@ async function main() {
         fullWidth: (() => {
           const button = latest.querySelector('.btn-row a, .btn-row button');
           const style = getComputedStyle(latest);
-          const inner = latest.getBoundingClientRect().width - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight);
+          const inner = latest.getBoundingClientRect().width - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight) - parseFloat(style.borderLeftWidth) - parseFloat(style.borderRightWidth);
           return Math.abs(button.getBoundingClientRect().width - inner) <= 2;
         })(),
         logArrow: Boolean(document.querySelector('a.arrow[aria-label="Log a purchase"]'))
@@ -3235,8 +3241,10 @@ async function main() {
         toggle: toggle ? toggle.textContent.trim() : '',
         expanded: toggle?.getAttribute('aria-expanded') || '',
         gap: types.getBoundingClientRect().top - chart.getBoundingClientRect().bottom,
-        scopeGap: scope.getBoundingClientRect().top - types.getBoundingClientRect().bottom,
-        above: group.getBoundingClientRect().top - scope.getBoundingClientRect().bottom,
+        scopeAboveChart: scope.getBoundingClientRect().bottom <= chart.getBoundingClientRect().top + 1,
+        scopeBg: getComputedStyle(scope.querySelector('[aria-selected="true"]')).backgroundColor,
+        segmentBg: getComputedStyle(document.querySelector('.segment a[aria-selected="true"]')).backgroundColor,
+        above: group.getBoundingClientRect().top - types.getBoundingClientRect().bottom,
         below: card.getBoundingClientRect().top - header.getBoundingClientRect().bottom,
         nameWeight: getComputedStyle(label).fontWeight,
         amountWeight: getComputedStyle(amount).fontWeight,
@@ -3249,7 +3257,9 @@ async function main() {
     assert.equal(collapsed.toggle, 'Show all');
     assert.equal(collapsed.expanded, 'false');
     assert.ok(collapsed.gap >= 8 && collapsed.gap <= 14, JSON.stringify(collapsed));
-    assert.ok(collapsed.scopeGap >= 8 && collapsed.scopeGap <= 14, JSON.stringify(collapsed));
+    assert.equal(collapsed.scopeAboveChart, true);
+    assert.equal(collapsed.scopeBg, 'rgb(255, 228, 92)');
+    assert.notEqual(collapsed.segmentBg, 'rgb(255, 228, 92)');
     assert.ok(collapsed.above >= 30 && collapsed.above <= 36, JSON.stringify(collapsed));
     assert.ok(collapsed.below >= 8 && collapsed.below <= 14, JSON.stringify(collapsed));
     assert.ok(collapsed.nameWeight === '700' || collapsed.nameWeight === 'bold', JSON.stringify(collapsed));
