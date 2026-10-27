@@ -165,6 +165,7 @@ export function render() {
   if (route.name === 'sell' || route.name === 'edit-sale') queueCheckRefresh();
 
   if (routeChanged) {
+    closeDialog();
     chartExpanded = false;
     scrollPageToTop();
     if (route.focus) scrollIntoView(route.focus);
@@ -401,8 +402,20 @@ function logPage(data, mode, today, route) {
         <a class="chip" href="#log" role="tab" aria-selected="${mode === 'add'}">Add</a>
         <a class="chip" href="#entries" role="tab" aria-selected="${mode === 'entries'}">Entries</a>
       </div>
+      ${mode === 'entries' ? entriesScope(data, route) : ''}
       ${mode === 'entries' ? entriesView(data, route) : purchaseForm(null, today, data.settings.categories)}
     </section>
+  `;
+}
+
+function entriesScope(data, route) {
+  const preordersOnly = route?.list === 'preorders';
+  const count = openPreorders(data.purchases).length;
+  return `
+    <div class="scope-pills" id="entries-scope" role="tablist" aria-label="Entries">
+      <a class="chip" href="#entries" role="tab" aria-selected="${!preordersOnly}">All</a>
+      <a class="chip" href="#entries/preorders" role="tab" aria-selected="${preordersOnly}">Pre-orders · ${count}</a>
+    </div>
   `;
 }
 
@@ -466,8 +479,8 @@ function purchaseForm(purchase, today, categories = []) {
   const openMore = Boolean(value.shop || value.notes);
   const canPay = editing && preorder && purchase.preorderStatus === 'deposit paid';
   return `
-    <section>
-      ${editing ? `<div class="title-row"><a class="icon-btn" href="#entries" aria-label="Back to entries">${BACK}</a><h2>Edit</h2></div>` : ''}
+    <section${editing ? ' class="stack"' : ''}>
+      ${editing ? `<div class="title-row"><a class="icon-btn" href="#entries" aria-label="Back to entries">${BACK}</a><h2>Edit purchase</h2></div>` : ''}
       <form id="${editing ? 'edit-form' : 'log-form'}" ${editing ? `data-id="${esc(purchase.id)}"` : ''} novalidate>
         <div class="group">
           <div class="row">
@@ -621,10 +634,7 @@ function entriesView(data, route = {}) {
   const listed = preordersOnly ? openPreorders(filtered) : filtered;
   const groups = groupByMonth(listed);
   const active = activeFilters();
-  const empty = preordersOnly
-    ? 'No open pre-orders'
-    : (data.purchases.length ? 'Nothing matches these filters.' : 'No purchases yet.');
-  const summary = preordersOnly ? '' : `
+  const summary = preordersOnly || !data.purchases.length ? '' : `
     <section class="panel" id="chart">
       <h3>Monthly spend</h3>
       <p class="meta">Every purchase, measured against that month's cap.</p>
@@ -632,7 +642,7 @@ function entriesView(data, route = {}) {
       ${chartToggle}
     </section>
     <article class="block yellow" id="category-totals">
-      <p class="kicker" data-edge>By type</p>
+      <h3 data-edge>By type</h3>
       <div class="stats" data-edge>
         ${(totals.length ? totals : [{ label: 'Total', count: 0, total: 0 }]).map((row, index) => `
           <div data-stat="${index}">
@@ -651,14 +661,21 @@ function entriesView(data, route = {}) {
       <button class="btn btn-ghost filter-btn" type="button" data-action="open-filters">Filter${active.length ? ` <span class="badge">${active.length}</span>` : ''}</button>
     </div>
     ${active.length ? `<div class="chips" aria-label="Active filters">${active.map(([key, label]) => `
-      <button type="button" data-filter="${esc(key)}" data-value="">${esc(label)} <span aria-hidden="true">×</span></button>
+      <button type="button" aria-pressed="true" data-filter="${esc(key)}" data-value="">${esc(label)} <span aria-hidden="true">×</span></button>
     `).join('')}</div>` : ''}
     ${summary}
-    <div class="chips segment" id="entries-scope" role="tablist" aria-label="Entries">
-      <a class="chip" href="#entries" role="tab" aria-selected="${!preordersOnly}">All</a>
-      <a class="chip" href="#entries/preorders" role="tab" aria-selected="${preordersOnly}">Pre-orders</a>
-    </div>
-    ${groups.length ? renderGroups(groups, data.purchases) : `<p class="empty">${empty}</p>`}
+    ${groups.length ? renderGroups(groups, data.purchases, preordersOnly) : emptyEntries(preordersOnly, data.purchases.length)}
+  `;
+}
+
+function emptyEntries(preordersOnly, purchaseCount) {
+  if (!preordersOnly && purchaseCount) return '<p class="empty">Nothing matches these filters.</p>';
+  const line = preordersOnly ? 'No open pre-orders' : 'No purchases yet.';
+  return `
+    <article class="block empty-card">
+      <p class="empty">${line}</p>
+      <a class="btn btn-primary" href="#log">Log a purchase</a>
+    </article>
   `;
 }
 
@@ -698,24 +715,27 @@ function openFilters(data) {
   `);
 }
 
-function renderGroups(groups, purchases) {
+function renderGroups(groups, purchases, preordersOnly) {
   let offset = 0;
   return groups.map((group) => {
-    const html = groupHtml(group, offset, purchases);
+    const html = groupHtml(group, offset, purchases, preordersOnly);
     offset += group.purchases.length;
     return html;
   }).join('');
 }
 
-function groupHtml(group, offset, purchases) {
-  // Same number as the Monthly spend chart: money paid in this month, across the log.
-  // Entries stay grouped by purchase date, so the cards underneath can be a different set.
-  const total = monthSpent(purchases, group.ym);
+function groupHtml(group, offset, purchases, preordersOnly) {
+  // All: same number as the Monthly spend chart (money paid in this month).
+  // Pre-orders: the balance still owed on the cards in this month.
+  const due = group.purchases.reduce((sum, item) => sum + (Number(item.balanceDueRm) || 0), 0);
+  const totalText = preordersOnly
+    ? `Balance due ${formatRM(Math.round(due * 100) / 100)}`
+    : formatRM(monthSpent(purchases, group.ym));
   return `
     <section class="month-group">
       <header class="item-top">
         <h3>${esc(formatMonth(group.ym))}</h3>
-        <p>${formatRM(total)}</p>
+        <p>${totalText}</p>
       </header>
       ${group.purchases.map((purchase, index) => purchaseCard(purchase, offset + index)).join('')}
     </section>
@@ -734,6 +754,7 @@ function purchaseCard(purchase, index, options = {}) {
     <article class="block" data-id="${esc(purchase.id)}">
       <div class="card-head" data-edge>
         <div class="tags">
+          ${options.home ? '<span class="tag">Latest</span>' : ''}
           ${purchase.figureType ? `<span class="tag">${esc(figureTypeLabel(purchase.figureType))}</span>` : ''}
           ${purchase.condition ? `<span class="tag">${esc(purchase.condition)}</span>` : ''}
           ${purchase.preorderStatus ? `<span class="tag">${esc(preorderStatusLabel(purchase.preorderStatus))}</span>` : ''}
@@ -791,20 +812,28 @@ function wishView(data, mode) {
     if (!data.wishlist.some((item) => item.id === id)) planIds.delete(id);
   }
   const countLabel = model.count === 1 ? '1 figure' : `${model.count} figures`;
+  const list = mode === 'plan' ? planList(model) : wishList(model);
   return `
     <section>
-      <h2>${mode === 'plan' ? 'Plan' : 'Wishlist'}</h2>
-      <p class="hero">
-        <span class="hero-currency">RM</span>
-        <span class="hero-num" id="wish-total">${esc(heroAmount(model.total))}</span>
-      </p>
-      <p class="hero-caption" id="wish-count">${esc(countLabel)} on the list</p>
-      <div class="chips segment" role="tablist" aria-label="Wishlist views">
-        <a class="chip" href="#wish" role="tab" aria-selected="${mode === 'wish'}">Items</a>
-        <a class="chip" href="#plan" role="tab" aria-selected="${mode === 'plan'}">Plan the month</a>
+      <h2>Wishlist</h2>
+      <div class="stack">
+        <div>
+          <p class="hero">
+            <span class="hero-currency">RM</span>
+            <span class="hero-num" id="wish-total">${esc(heroAmount(model.total))}</span>
+          </p>
+          <p class="hero-caption" id="wish-count">${esc(countLabel)} on the list</p>
+        </div>
+        <div class="chips segment" role="tablist" aria-label="Wishlist views">
+          <a class="chip" href="#wish" role="tab" aria-selected="${mode === 'wish'}">Items</a>
+          <a class="chip" href="#plan" role="tab" aria-selected="${mode === 'plan'}">Plan the month</a>
+        </div>
+        ${mode === 'plan' ? `<div class="panel plan-summary" id="plan-summary">${planSummary(data)}</div>` : wishForm()}
+        <div class="list-block">
+          <h3 class="list-head">On the list</h3>
+          <div class="stack" id="wish-list">${list}</div>
+        </div>
       </div>
-      ${mode === 'plan' ? `<div class="panel plan-summary" id="plan-summary">${planSummary(data)}</div>` : wishForm()}
-      <div class="stack" id="wish-list">${mode === 'plan' ? planList(model) : wishList(model)}</div>
     </section>
   `;
 }
@@ -830,7 +859,14 @@ function wishForm() {
 }
 
 function wishList(model) {
-  if (!model.items.length) return '<p class="empty">No figures here yet. Add one with a name and a price.</p>';
+  if (!model.items.length) {
+    return `
+      <article class="block empty-card">
+        <p class="empty">No figures here yet.</p>
+        <button class="btn btn-primary" type="button" data-action="focus-field" data-id="fc-wish">Add a figure</button>
+      </article>
+    `;
+  }
   return model.items.map((item, index) => `
     <article class="block" data-id="${esc(item.id)}">
       <div class="card-head" data-edge>
@@ -849,7 +885,14 @@ function wishList(model) {
 }
 
 function planList(model) {
-  if (!model.items.length) return '<p class="empty">Your wishlist is empty, so there is nothing to plan yet.</p>';
+  if (!model.items.length) {
+    return `
+      <article class="block empty-card">
+        <p class="empty">Nothing to plan yet.</p>
+        <a class="btn btn-primary" href="#wish">Add a figure</a>
+      </article>
+    `;
+  }
   return model.items.map((item) => `
     <label class="pick">
       <input type="checkbox" data-action="plan-toggle" data-id="${esc(item.id)}" ${planIds.has(item.id) ? 'checked' : ''}>
@@ -886,14 +929,28 @@ function sellPage(data, id) {
     if (!item) {
       return `<section><h2>Listing not found</h2><p><a href="#sell">Back to sell</a></p></section>`;
     }
-    return `<section><div class="title-row"><a class="icon-btn" href="#sell" aria-label="Back to sell">${BACK}</a><h2>Edit sale</h2></div>${saleForm(item)}</section>`;
+    return `<section class="stack"><div class="title-row"><a class="icon-btn" href="#sell" aria-label="Back to sell">${BACK}</a><h2>Edit sale</h2></div>${saleForm(item)}</section>`;
   }
   return `
-    <section class="stack">
+    <section>
       <h2>Sell</h2>
-      ${saleForm(null)}
-      ${data.forSale.length ? data.forSale.map((item, index) => saleCard(item, index)).join('') : '<p class="empty">Nothing listed yet.</p>'}
+      <div class="stack">
+        ${saleForm(null)}
+        <div class="list-block">
+          <h3 class="list-head">Listed</h3>
+          <div class="stack">${data.forSale.length ? data.forSale.map((item) => saleCard(item)).join('') : saleEmpty()}</div>
+        </div>
+      </div>
     </section>
+  `;
+}
+
+function saleEmpty() {
+  return `
+    <article class="block empty-card">
+      <p class="empty">Nothing listed yet.</p>
+      <button class="btn btn-primary" type="button" data-action="focus-field" data-id="fc-sale">Add a listing</button>
+    </article>
   `;
 }
 
@@ -906,43 +963,61 @@ function saleForm(item) {
   const editing = Boolean(item);
   return `
     <form class="panel" id="sale-form" ${editing ? `data-id="${esc(item.id)}"` : ''} novalidate>
-      <label class="field" data-edge for="fc-sale">Figure
-        <input id="fc-sale" name="fc_sale" maxlength="80" ${typingAttrs('words')} value="${esc(value.name)}">
-      </label>
-      <label class="field" data-edge for="sale-brand">Brand
-        <input id="sale-brand" name="brand" maxlength="80" ${typingAttrs('words')} value="${esc(value.brand || '')}">
-      </label>
-      <label class="field" data-edge for="sale-series">Series
-        <input id="sale-series" name="series" maxlength="80" ${typingAttrs('words')} value="${esc(value.series || '')}">
-      </label>
-      <p class="spec-label" data-edge>Condition</p>
-      ${chips('condition', SALE_CONDITIONS, value.condition || 'MISB')}
-      <p class="spec-label" data-edge>Asking price</p>
-      ${moneyFields({
-        amount: amountValue(value.originalAmount),
-        currency: value.currency || 'MYR',
-        override: Boolean(value.fxOverridden),
-        amountRm: value.fxOverridden ? amountValue(value.price) : '',
-        amountId: 'sale-price'
-      })}
-      <label class="field" data-edge for="sale-notes">Notes
-        <textarea id="sale-notes" name="notes" maxlength="280" rows="3" ${typingAttrs('sentences')}>${esc(value.notes || '')}</textarea>
-      </label>
-      <p class="spec-label" data-edge>Status</p>
-      ${chips('status', SALE_STATUSES, value.status || 'listed')}
-      <div data-sold-box ${value.status === 'sold' ? '' : 'hidden'}>
-        <p class="spec-label">Sold price</p>
-        ${moneyFields({
-          prefix: 'sold',
-          amount: amountValue(value.soldOriginalAmount),
-          currency: value.soldCurrency || 'MYR',
-          override: Boolean(value.soldFxOverridden),
-          amountRm: value.soldFxOverridden ? amountValue(value.soldPrice) : '',
-          amountId: 'sold-price'
-        })}
-        <label class="field" data-edge for="sold-date">Sold date
-          <input id="sold-date" name="soldDate" type="date" value="${esc(value.soldDate || '')}">
+      <div class="row">
+        <label class="field" data-edge for="fc-sale">Figure
+          <input id="fc-sale" name="fc_sale" maxlength="80" ${typingAttrs('words')} value="${esc(value.name)}">
         </label>
+      </div>
+      <div class="row">
+        <label class="field" data-edge for="sale-brand">Brand
+          <input id="sale-brand" name="brand" maxlength="80" ${typingAttrs('words')} value="${esc(value.brand || '')}">
+        </label>
+      </div>
+      <div class="row">
+        <label class="field" data-edge for="sale-series">Series
+          <input id="sale-series" name="series" maxlength="80" ${typingAttrs('words')} value="${esc(value.series || '')}">
+        </label>
+      </div>
+      <div class="row">
+        <p class="spec-label" data-edge>Condition</p>
+        ${chips('condition', SALE_CONDITIONS, value.condition || 'MISB')}
+      </div>
+      <div class="row">
+        ${moneyFields({
+          label: 'Asking price',
+          amount: amountValue(value.originalAmount),
+          currency: value.currency || 'MYR',
+          override: Boolean(value.fxOverridden),
+          amountRm: value.fxOverridden ? amountValue(value.price) : '',
+          amountId: 'sale-price'
+        })}
+      </div>
+      <div class="row">
+        <label class="field" data-edge for="sale-notes">Notes
+          <textarea id="sale-notes" name="notes" maxlength="280" rows="3" ${typingAttrs('sentences')}>${esc(value.notes || '')}</textarea>
+        </label>
+      </div>
+      <div class="row">
+        <p class="spec-label" data-edge>Status</p>
+        ${chips('status', SALE_STATUSES, value.status || 'listed')}
+      </div>
+      <div data-sold-box ${value.status === 'sold' ? '' : 'hidden'}>
+        <div class="row">
+          ${moneyFields({
+            prefix: 'sold',
+            label: 'Sold price',
+            amount: amountValue(value.soldOriginalAmount),
+            currency: value.soldCurrency || 'MYR',
+            override: Boolean(value.soldFxOverridden),
+            amountRm: value.soldFxOverridden ? amountValue(value.soldPrice) : '',
+            amountId: 'sold-price'
+          })}
+        </div>
+        <div class="row">
+          <label class="field" data-edge for="sold-date">Sold date
+            <input id="sold-date" name="soldDate" type="date" value="${esc(value.soldDate || '')}">
+          </label>
+        </div>
       </div>
       <p class="form-error" role="alert" hidden></p>
       <button class="btn btn-primary" type="submit">${editing ? 'Save listing' : 'Add listing'}</button>
@@ -1447,6 +1522,10 @@ function onClick(event) {
   }
   if (action === 'close-dialog') {
     closeDialog();
+    return;
+  }
+  if (action === 'focus-field') {
+    document.getElementById(button.dataset.id)?.focus();
     return;
   }
   if (action === 'remove-wish') removeWish(button.dataset.id);
