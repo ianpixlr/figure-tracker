@@ -12,6 +12,7 @@ import {
   homeModel,
   monthSnapshot,
   monthSpent,
+  openPreorders,
   yearBreakdown,
   planModel,
   sortWishlist,
@@ -27,6 +28,7 @@ import {
   filterPurchases,
   latestPriceCheck,
   normalizeFigureType,
+  purchaseFilterOptions,
   rrpSearchUrl
 } from '../js/catalog.js';
 import { formatRM, parseMoney, withAmounts } from '../js/money.js';
@@ -716,4 +718,179 @@ test('figure types migrate once and custom categories persist', () => {
   const imported = normalizeData(exported, '2026-10');
   assert.equal(imported.purchases.find((item) => item.id === 'custom').figureType, 'Movie');
   assert.equal(filterPurchases(imported.purchases, { type: 'Movie' }).map((item) => item.id).join(','), 'custom');
+});
+
+test('sheet dates that used to be scale types map back', () => {
+  assert.equal(normalizeFigureType('2026-01-06'), '1-6');
+  assert.equal(normalizeFigureType('2026-01-12'), '1-12');
+  assert.equal(normalizeFigureType('2026-01-05T16:00:00.000Z'), '1-6');
+  assert.equal(normalizeFigureType('2026-01-06T15:59:59.000Z'), '1-6');
+  assert.equal(normalizeFigureType('2026-01-06T16:00:00.000Z'), 'other');
+  assert.equal(normalizeFigureType('1/6/2026'), '1-6');
+  assert.equal(normalizeFigureType('1/12/2026'), '1-12');
+  assert.equal(normalizeFigureType('01/06/2026'), '1-6');
+  assert.equal(normalizeFigureType('2026-01-04'), 'other');
+  assert.equal(normalizeFigureType('2026-10-03'), 'other');
+  assert.equal(normalizeFigureType('???'), 'other');
+  assert.equal(normalizeFigureType('2026-01-06', ['2026-01-06']), '2026-01-06');
+  assert.equal(normalizeFigureType(new Date('2026-01-05T16:00:00.000Z')), '1-6');
+
+  const healed = normalizeData({
+    settings: { monthlyCap: 400, trackingStart: '2026-10' },
+    purchases: [
+      {
+        id: 'boots',
+        date: '2026-10-01',
+        name: 'Black Platform Martin Boots',
+        brand: 'Worldbox',
+        type: '2026-01-06',
+        bought_as: 'Purchased',
+        condition: 'MISB',
+        original_amount: 10,
+        currency: 'MYR',
+        amount_rm: 10
+      },
+      {
+        id: 'iso',
+        date: '2026-10-02',
+        name: 'ISO body',
+        brand: 'Worldbox',
+        type: '2026-01-05T16:00:00.000Z',
+        bought_as: 'Purchased',
+        original_amount: 10,
+        currency: 'MYR',
+        amount_rm: 10
+      },
+      {
+        id: 'us',
+        date: '2026-10-03',
+        name: 'US date',
+        brand: 'VH Toys',
+        type: '1/12/2026',
+        bought_as: 'Purchased',
+        original_amount: 10,
+        currency: 'MYR',
+        amount_rm: 10
+      }
+    ],
+    wishlist: [],
+    forSale: []
+  }, '2026-10');
+  const byId = Object.fromEntries(healed.purchases.map((item) => [item.id, item.figureType]));
+  assert.deepEqual(byId, { boots: '1-6', iso: '1-6', us: '1-12' });
+});
+
+test('search matches every field, every word, and ignores accents', () => {
+  const purchases = [
+    {
+      date: '2026-10-02',
+      name: 'Xeno Dash & Fenrir',
+      brand: 'Sheik Mainland',
+      series: '',
+      shop: 'Hobby',
+      notes: '',
+      condition: 'MISB',
+      figureType: 'model-kit'
+    },
+    {
+      date: '2026-08-01',
+      name: 'Bumblebee',
+      brand: 'Blokees',
+      series: 'Wheels C04',
+      shop: '',
+      notes: 'window box',
+      condition: 'MIB',
+      figureType: 'transformers'
+    },
+    {
+      date: '2026-07-04',
+      name: 'Café Rei',
+      brand: 'Hasbro',
+      series: 'Classified',
+      shop: 'Worldbox Shop',
+      notes: '',
+      condition: 'Loose',
+      figureType: '1-12'
+    }
+  ];
+  assert.equal(filterPurchases(purchases, { q: 'sheik' }).length, 1);
+  assert.equal(filterPurchases(purchases, { q: '  Sheik Mainland  ' }).length, 1);
+  assert.equal(filterPurchases(purchases, { q: 'hasbro' }).length, 1);
+  assert.equal(filterPurchases(purchases, { q: 'worldbox' }).length, 1);
+  assert.equal(filterPurchases(purchases, { q: 'wheels' }).length, 1);
+  assert.equal(filterPurchases(purchases, { q: 'misb' }).length, 1);
+  assert.equal(filterPurchases(purchases, { q: 'cafe' }).length, 1);
+  assert.equal(filterPurchases(purchases, { q: 'hasbro classified' }).length, 1);
+  assert.equal(filterPurchases(purchases, { q: 'window box' }).length, 1);
+  assert.equal(filterPurchases(purchases, { q: '1/12' }).length, 1);
+  assert.equal(filterPurchases(purchases, { q: 'model kit' }).length, 1);
+  assert.equal(filterPurchases(purchases, { q: 'transformers' }).length, 1);
+  assert.equal(filterPurchases(purchases, { q: 'hobby' }).length, 1);
+  assert.equal(filterPurchases(purchases, { q: 'sheik wheels' }).length, 0);
+  assert.equal(filterPurchases(purchases, { q: 'sheik', type: 'model-kit' }).map((item) => item.name).join(','), 'Xeno Dash & Fenrir');
+  assert.equal(filterPurchases(purchases, { q: 'xeno', brand: 'Sheik Mainland', year: '2026' }).length, 1);
+});
+
+test('filter chips list only values that exist, and follow the selected year', () => {
+  const purchases = [
+    { date: '2026-06-01', brand: 'Hasbro', series: 'Joe', figureType: '1-12', name: 'Baroness' },
+    { date: '2026-10-02', brand: 'Worldbox', series: 'Boots', figureType: '1-6', name: 'Boots' },
+    { date: '2026-10-03', brand: 'Hasbro', series: 'Joe', figureType: 'transformers', name: 'Prime' },
+    { date: '2025-01-04', brand: 'Old Brand', series: 'Past', figureType: 'other', name: 'Old' },
+    { date: '2026-08-09', brand: 'InArt', series: 'Movie', figureType: 'Movie', name: 'Batman' }
+  ];
+  const all = purchaseFilterOptions(purchases, {});
+  assert.deepEqual(all.years, ['2026', '2025']);
+  assert.equal(all.years.includes('2024'), false);
+  assert.deepEqual(all.months, ['01', '06', '08', '10']);
+  assert.equal(all.months.includes('02'), false);
+  assert.deepEqual(all.brands, ['Hasbro', 'InArt', 'Old Brand', 'Worldbox']);
+  assert.equal(all.series.includes(''), false);
+  assert.deepEqual(all.types.map((item) => item.value), ['transformers', '1-12', '1-6', 'other', 'Movie']);
+  assert.deepEqual(all.types.find((item) => item.value === '1-6'), { value: '1-6', label: '1/6' });
+
+  const year = purchaseFilterOptions(purchases, { year: '2026' });
+  assert.deepEqual(year.months, ['06', '08', '10']);
+  assert.equal(year.brands.includes('Old Brand'), false);
+  assert.equal(year.types.some((item) => item.value === 'other'), false);
+
+  const narrowed = purchaseFilterOptions(purchases, { year: '2026', brand: 'Hasbro' });
+  assert.deepEqual(narrowed.series, ['Joe']);
+  assert.deepEqual(narrowed.months, ['06', '10']);
+  assert.deepEqual(narrowed.types.map((item) => item.value), ['transformers', '1-12']);
+  assert.equal(purchaseFilterOptions([], {}).years.length, 0);
+});
+
+test('a sheet pre-order stays on the pre-order list after the type date is healed', () => {
+  const data = normalizeData({
+    settings: { monthlyCap: 400, trackingStart: '2026-10' },
+    purchases: [{
+      id: 'bat',
+      date: '2026-10-18',
+      name: 'The Batman',
+      brand: 'InArt',
+      series: 'The Dark Knight',
+      type: '2026-01-12',
+      bought_as: 'Pre-ordered',
+      condition: 'MISB',
+      preorder_status: 'deposit paid',
+      est_full_original_amount: 100,
+      est_full_currency: 'MYR',
+      est_full_price: 100,
+      deposit_original_amount: 20,
+      deposit_currency: 'MYR',
+      deposit_amount_rm: 20,
+      deposit_date: '2026-10-18'
+    }],
+    wishlist: [],
+    forSale: []
+  }, '2026-10');
+  assert.equal(data.purchases.length, 1);
+  assert.equal(data.purchases[0].figureType, '1-12');
+  assert.equal(data.purchases[0].boughtAs, 'preorder');
+  assert.equal(data.purchases[0].preorderStatus, 'deposit paid');
+  assert.equal(openPreorders(data.purchases).length, 1);
+  const filtered = filterPurchases(data.purchases, { type: '1-12', q: 'batman inart' });
+  assert.equal(openPreorders(filtered).length, 1);
+  assert.equal(openPreorders(filterPurchases(data.purchases, { q: 'missing' })).length, 0);
 });

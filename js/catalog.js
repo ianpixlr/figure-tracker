@@ -2,7 +2,7 @@
 
 import { capPayments } from './budget.js';
 import { fromCents, parseMoney, toCents } from './money.js';
-import { isYMD } from './time.js';
+import { isYMD, todayYMD } from './time.js';
 
 // Built-in types, in the order the chips show them. Add a type by appending one
 // entry here. Not set is the empty default and stays first.
@@ -81,7 +81,58 @@ export function normalizeFigureType(value, customCategories = []) {
   if (LEGACY_FIGURE_TYPES[slug]) return LEGACY_FIGURE_TYPES[slug];
   const custom = customCategories.find((name) => categoryKey(name) === key);
   if (custom) return String(custom).trim();
+  // Sheets turns a scale such as 1/6 into a date. Jan 6 is 1/6, Jan 12 is 1/12.
+  const fromDate = figureTypeFromSheetDate(value);
+  if (fromDate) return fromDate;
   return 'other';
+}
+
+// Scale chips whose label is N/M, so a future 1/4 or 1/10 is recovered the same way.
+function scaleFromMonthDay(month, day) {
+  const label = `${Number(month)}/${Number(day)}`;
+  return FIGURE_TYPES.find((item) => item.value && item.label === label)?.value || '';
+}
+
+// Calendar dates stay as written. Instants (a trailing T) are read in Malaysia,
+// so 16:00Z the day before is the next morning there.
+function figureTypeFromSheetDate(value) {
+  if (value instanceof Date) {
+    if (Number.isNaN(value.getTime())) return '';
+    const parts = todayYMD(value).split('-').map(Number);
+    return scaleFromMonthDay(parts[1], parts[2]);
+  }
+  const text = String(value ?? '').trim();
+  if (/^\d{4}-\d{2}-\d{2}T/.test(text)) {
+    const parsed = new Date(text);
+    if (Number.isNaN(parsed.getTime())) return '';
+    const parts = todayYMD(parsed).split('-').map(Number);
+    return scaleFromMonthDay(parts[1], parts[2]);
+  }
+  const calendar = text.match(/^(\d{4})-(\d{1,2})-(\d{1,2})(?:\s+\d{1,2}:\d{2}(?::\d{2})?)?$/);
+  if (calendar) return scaleFromMonthDay(calendar[2], calendar[3]);
+  const us = text.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})(?:\s+\d{1,2}:\d{2}(?::\d{2})?)?$/);
+  if (us) return scaleFromMonthDay(us[1], us[2]);
+  return '';
+}
+
+function foldText(value) {
+  return String(value ?? '')
+    .normalize('NFD')
+    .replace(/\p{M}/gu, '')
+    .toLowerCase();
+}
+
+function searchHaystack(purchase) {
+  const type = purchase.figureType ? figureTypeLabel(purchase.figureType) : '';
+  return foldText([
+    purchase.name,
+    purchase.brand,
+    purchase.series,
+    purchase.shop,
+    purchase.notes,
+    purchase.condition,
+    type
+  ].join(' '));
 }
 
 export function categoryError(name, customCategories = []) {
@@ -117,7 +168,7 @@ export function boughtAsLabel(value) {
 // Older logs used New and Second-hand. Both are purchases; condition covers used figures.
 export function normalizeBoughtAs(value, legacyType) {
   const raw = String(value || '').trim().toLowerCase().replace(/[\s_]+/g, '-');
-  if (raw === 'preorder' || raw === 'pre-order' || raw === 'preordered') return 'preorder';
+  if (raw === 'preorder' || raw === 'pre-order' || raw === 'preordered' || raw === 'pre-ordered') return 'preorder';
   if (raw === 'purchased' || raw === 'new' || raw === 'second-hand' || raw === 'secondhand') return 'purchased';
   if (legacyType === 'preorder') return 'preorder';
   return 'purchased';
@@ -159,7 +210,7 @@ export function filterPurchases(purchases, filters = {}) {
   const brand = String(filters.brand || '');
   const series = String(filters.series || '');
   const type = String(filters.type || '');
-  const query = String(filters.q || '').trim().toLowerCase();
+  const words = foldText(filters.q).trim().split(/\s+/).filter(Boolean);
   return purchases.filter((purchase) => {
     if (!isYMD(purchase.date)) return false;
     if (year && purchase.date.slice(0, 4) !== year) return false;
@@ -167,9 +218,35 @@ export function filterPurchases(purchases, filters = {}) {
     if (brand && purchase.brand !== brand) return false;
     if (series && purchase.series !== series) return false;
     if (type && (purchase.figureType || '') !== type) return false;
-    if (query && !String(purchase.name || '').toLowerCase().includes(query)) return false;
+    if (words.length) {
+      const haystack = searchHaystack(purchase);
+      if (!words.every((word) => haystack.includes(word))) return false;
+    }
     return true;
   });
+}
+
+// Chips are rebuilt from the purchases on screen, so a figure saved a moment
+// ago shows up the next time Filter is opened. A chosen year (or any other
+// active filter) drops options that would match nothing.
+export function purchaseFilterOptions(purchases, filters = {}) {
+  const list = Array.isArray(purchases) ? purchases : [];
+  const pick = (skip) => filterPurchases(list, { ...filters, q: '', [skip]: '' });
+  const years = [...new Set(pick('year').map((purchase) => purchase.date.slice(0, 4)))]
+    .sort((a, b) => (a < b ? 1 : -1));
+  const months = [...new Set(pick('month').map((purchase) => purchase.date.slice(5, 7)))].sort();
+  const brands = distinctValues(pick('brand'), 'brand');
+  const series = distinctValues(pick('series'), 'series');
+  const rank = new Map(FIGURE_TYPES.map((item, index) => [item.value, index]));
+  const types = [...new Set(pick('type').map((purchase) => purchase.figureType || '').filter(Boolean))]
+    .sort((a, b) => {
+      const left = rank.has(a) ? rank.get(a) : FIGURE_TYPES.length;
+      const right = rank.has(b) ? rank.get(b) : FIGURE_TYPES.length;
+      if (left !== right) return left - right;
+      return figureTypeLabel(a).localeCompare(figureTypeLabel(b));
+    })
+    .map((value) => ({ value, label: figureTypeLabel(value) }));
+  return { years, months, brands, series, types };
 }
 
 // Money actually paid on these purchases. A year or month keeps each payment

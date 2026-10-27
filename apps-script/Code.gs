@@ -65,6 +65,16 @@ var DATETIME_COLUMNS = {
   checked_at: true
 };
 
+// Free text that Sheets will turn into a date if the column is General.
+// 1/6 and 1/12 in type, and a series such as 1/6, have to stay plain text.
+var TEXT_COLUMNS = {
+  name: true,
+  series: true,
+  brand: true,
+  type: true,
+  condition: true
+};
+
 function json(payload) {
   return ContentService
     .createTextOutput(JSON.stringify(payload))
@@ -176,6 +186,9 @@ function repairSheet(ss, name, wanted) {
 }
 
 function applyFormats(sheet, headers) {
+  // The whole column, including blank rows below the last purchase, so a row
+  // appended later is already plain text. getLastRow() would leave those cells
+  // on General, and Sheets would turn the next 1/6 into a date.
   var rows = Math.max(sheet.getMaxRows() - 1, 1);
   headers.forEach(function (header, index) {
     var range = sheet.getRange(2, index + 1, rows, 1);
@@ -191,7 +204,44 @@ function applyFormats(sheet, headers) {
       range.setNumberFormat('yyyy-mm-dd');
     } else if (DATETIME_COLUMNS[header]) {
       range.setNumberFormat('yyyy-mm-dd hh:mm');
+    } else if (TEXT_COLUMNS[header]) {
+      range.setNumberFormat('@');
     }
+  });
+}
+
+function ensureRow(sheet, headers, line) {
+  var max = sheet.getMaxRows();
+  if (line <= max) return;
+  sheet.insertRowsAfter(max, line - max);
+  headers.forEach(function (header, index) {
+    if (!TEXT_COLUMNS[header]) return;
+    sheet.getRange(max + 1, index + 1, line - max, 1).setNumberFormat('@');
+  });
+}
+
+function writeRow(sheet, line, headers, row) {
+  ensureRow(sheet, headers, line);
+  var textWrites = [];
+  headers.forEach(function (header, index) {
+    if (!Object.prototype.hasOwnProperty.call(row, header)) return;
+    var value = outgoing(header, row[header]);
+    var cell = sheet.getRange(line, index + 1);
+    if (TEXT_COLUMNS[header]) {
+      cell.setNumberFormat('@');
+      textWrites.push({
+        cell: cell,
+        value: value == null || value === '' ? '' : String(value)
+      });
+      return;
+    }
+    cell.setValue(value);
+  });
+  if (!textWrites.length) return;
+  // Commit the @ format before the value is parsed, or 1/6 is still a date.
+  SpreadsheetApp.flush();
+  textWrites.forEach(function (item) {
+    item.cell.setValue(item.value);
   });
 }
 
@@ -234,18 +284,12 @@ function upsertRow(sheet, headers, row) {
   if (idIndex === -1) throw new Error('missing id column');
   var line = findRow(sheet, idIndex, row.id);
   if (!line) line = Math.max(sheet.getLastRow(), 1) + 1;
-  headers.forEach(function (header, index) {
-    if (!Object.prototype.hasOwnProperty.call(row, header)) return;
-    sheet.getRange(line, index + 1).setValue(outgoing(header, row[header]));
-  });
+  writeRow(sheet, line, headers, row);
 }
 
 function appendCheckRow(sheet, headers, row) {
   var line = Math.max(sheet.getLastRow(), 1) + 1;
-  headers.forEach(function (header, index) {
-    if (!Object.prototype.hasOwnProperty.call(row, header)) return;
-    sheet.getRange(line, index + 1).setValue(outgoing(header, row[header]));
-  });
+  writeRow(sheet, line, headers, row);
 }
 
 function deleteById(sheet, headers, id) {
