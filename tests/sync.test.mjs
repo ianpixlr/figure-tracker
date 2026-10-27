@@ -2,6 +2,8 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
 
+import { normalizeData } from '../js/store.js';
+
 import {
   DEFAULT_SYNC_URL,
   PURCHASE_COLUMNS,
@@ -75,6 +77,24 @@ test('the deployed web app is the default sync address', () => {
   assert.match(script, /1T6r59M_WNSqRt6nfQhOyVwyHVuQtlvi6JabgwLnfk60/);
 });
 
+test('scale labels are written to the sheet as plain text', () => {
+  const textColumns = script.slice(script.indexOf('var TEXT_COLUMNS'), script.indexOf('function json'));
+  for (const header of ['name', 'series', 'brand', 'type', 'condition']) {
+    assert.match(textColumns, new RegExp(`${header}:\\s*true`));
+  }
+  const formats = script.slice(script.indexOf('function applyFormats'), script.indexOf('function ensureRow'));
+  assert.match(formats, /getMaxRows\(\)/);
+  assert.match(formats, /sheet\.getRange\(2, index \+ 1, rows, 1\)/);
+  assert.match(formats, /TEXT_COLUMNS\[header\]/);
+  assert.match(formats, /setNumberFormat\('@'\)/);
+  const write = script.slice(script.indexOf('function writeRow'), script.indexOf('function asDateOnly'));
+  assert.match(write, /setNumberFormat\('@'\)/);
+  const flushAt = write.indexOf('SpreadsheetApp.flush()');
+  const valueAt = write.lastIndexOf('setValue');
+  assert.ok(flushAt !== -1 && valueAt > flushAt, 'text values are written after the @ format is flushed');
+  assert.match(script, /function ensureRow/);
+});
+
 test('sheet headers match the rows the app sends', () => {
   assert.equal(PURCHASE_COLUMNS.includes('mood'), false);
   assert.deepEqual(headers('Purchases'), PURCHASE_COLUMNS);
@@ -93,6 +113,7 @@ test('sheet headers match the rows the app sends', () => {
   assert.equal(row.amount_rm, 391.04);
   assert.equal(row.fx_overridden, 'yes');
   assert.equal(row.type, 'Transformers');
+  assert.equal(purchaseRow({ ...samplePurchase(), figureType: '1-6' }).type, '1/6');
   assert.equal(purchaseRow({ ...samplePurchase(), figureType: '1-12' }).type, '1/12');
   assert.equal(purchaseRow({ ...samplePurchase(), figureType: 'model-kit' }).type, 'Model Kit');
   assert.equal(purchaseRow({ ...samplePurchase(), figureType: 'Movie' }).type, 'Movie');
@@ -102,6 +123,35 @@ test('sheet headers match the rows the app sends', () => {
   const purchased = purchaseRow({ ...samplePurchase(), boughtAs: 'purchased', status: 'received' });
   assert.equal(purchased.bought_as, 'Purchased');
   assert.equal(purchased.status, 'Received');
+  const sixth = purchaseRow({
+    ...samplePurchase(),
+    figureType: '1-6',
+    boughtAs: 'purchased',
+    status: 'received',
+    originalAmount: 40,
+    currency: 'MYR',
+    fxRate: 1,
+    price: 40,
+    fxOverridden: false
+  });
+  assert.equal(sixth.type, '1/6');
+  const roundTrip = normalizeData({
+    settings: { monthlyCap: 400, trackingStart: '2026-09', categories: [] },
+    purchases: [sixth],
+    wishlist: [],
+    forSale: []
+  }, '2026-10');
+  assert.equal(roundTrip.purchases.length, 1);
+  assert.equal(roundTrip.purchases[0].figureType, '1-6');
+  assert.equal(roundTrip.purchases[0].boughtAs, 'purchased');
+  assert.equal(purchaseRow(roundTrip.purchases[0]).type, '1/6');
+  const healed = normalizeData({
+    settings: { monthlyCap: 400, trackingStart: '2026-09', categories: [] },
+    purchases: [{ ...sixth, type: '2026-01-06' }, { ...sixth, id: 'us', type: '1/6/2026' }],
+    wishlist: [],
+    forSale: []
+  }, '2026-10');
+  assert.deepEqual(healed.purchases.map((item) => purchaseRow(item).type), ['1/6', '1/6']);
   assert.equal(row.preorder_status, '');
   assert.equal(row.mood, undefined);
   const open = purchaseRow({

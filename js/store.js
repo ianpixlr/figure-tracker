@@ -292,7 +292,7 @@ function cleanPurchase(input, seen, categories = []) {
   const date = String(input.date ?? '');
   if (!name || !isYMD(date)) return null;
 
-  const boughtAs = normalizeBoughtAs(input.boughtAs, input.type);
+  const boughtAs = normalizeBoughtAs(input.boughtAs ?? input.bought_as, input.type);
   const status = derivedPurchaseStatus(boughtAs, '');
   const figureType = normalizeFigureType(rawFigureType(input), categories);
 

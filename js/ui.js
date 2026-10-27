@@ -26,10 +26,10 @@ import {
   normalizeFigureType,
   carousellSearchUrl,
   categoryTotals,
-  distinctValues,
   figureAmount,
   figureTypeLabel,
   filterPurchases,
+  purchaseFilterOptions,
   latestPriceCheck,
   preorderStatusLabel,
   rrpSearchUrl,
@@ -700,17 +700,15 @@ function activeFilters() {
 }
 
 function openFilters(data) {
-  const years = [...new Set([
-    ...data.purchases.map((item) => item.date.slice(0, 4)),
-    todayYMD().slice(0, 4)
-  ])].sort((a, b) => (a < b ? 1 : -1));
+  const options = purchaseFilterOptions(data.purchases, filters);
+  const monthName = new Map(MONTHS);
   openDialog(`
     <h2 id="dialog-title">Filter</h2>
-    ${filterChips('Year', 'year', [['', 'All'], ...years.map((year) => [year, year])])}
-    ${filterChips('Month', 'month', [['', 'All'], ...MONTHS])}
-    ${filterChips('Brand', 'brand', [['', 'All'], ...distinctValues(data.purchases, 'brand').map((value) => [value, value])])}
-    ${filterChips('Series', 'series', [['', 'All'], ...distinctValues(data.purchases, 'series').map((value) => [value, value])])}
-    ${filterChips('Type', 'type', typeFilterOptions(data))}
+    ${filterChips('Year', 'year', [['', 'All'], ...options.years.map((year) => [year, year])])}
+    ${filterChips('Month', 'month', [['', 'All'], ...options.months.map((month) => [month, monthName.get(month) || month])])}
+    ${filterChips('Brand', 'brand', [['', 'All'], ...options.brands.map((value) => [value, value])])}
+    ${filterChips('Series', 'series', [['', 'All'], ...options.series.map((value) => [value, value])])}
+    ${filterChips('Type', 'type', [['', 'All'], ...options.types.map((item) => [item.value, item.label])])}
     <button class="btn btn-ghost" type="button" data-action="close-dialog">Done</button>
   `);
 }
@@ -1297,17 +1295,6 @@ function currencyOptions(selected) {
   const extras = OTHER_CURRENCIES.filter((code) => !QUICK_CURRENCIES.includes(code));
   const known = QUICK_CURRENCIES.includes(current) || extras.includes(current);
   return `<optgroup label="Common">${QUICK_CURRENCIES.map(option).join('')}</optgroup><optgroup label="Other">${extras.map(option).join('')}${known ? '' : option(current)}</optgroup>`;
-}
-
-function typeOptions(categories = []) {
-  return [
-    ...FIGURE_TYPES,
-    ...categories.map((name) => ({ value: name, label: name }))
-  ];
-}
-
-function typeFilterOptions(data) {
-  return [['', 'All'], ...typeOptions(data.settings.categories || []).filter((item) => item.value).map((item) => [item.value, item.label])];
 }
 
 function typeChip(option, selected, removable) {
