@@ -642,7 +642,7 @@ function entriesView(data, route = {}) {
       ${chartToggle}
     </section>
     <article class="block yellow" id="category-totals">
-      <p class="kicker" data-edge>By type</p>
+      <h3 data-edge>By type</h3>
       <div class="stats" data-edge>
         ${(totals.length ? totals : [{ label: 'Total', count: 0, total: 0 }]).map((row, index) => `
           <div data-stat="${index}">

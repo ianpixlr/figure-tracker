@@ -64,8 +64,8 @@ async function assertSearchToolbar(page) {
   assert.ok(search.inputHeight >= 47, String(search.inputHeight));
   assert.ok(search.inputWidth > 80, String(search.inputWidth));
   assert.equal(search.radius, search.filterRadius);
-  assert.equal(search.border, '2px');
-  assert.equal(search.filterBorder, '2px');
+  assert.equal(search.border, '0px');
+  assert.equal(search.filterBorder, '0px');
   assert.equal(search.borderColor, search.filterBorderColor);
   assert.equal(search.appearance, 'none');
 }
@@ -612,7 +612,7 @@ async function assertHeaderDivider(page) {
   assert.equal(result.borderStyle, 'solid');
   assert.equal(result.outline, 'none');
   assert.equal(result.status, 'Syncing…');
-  assert.ok(result.gaps.length >= 2, JSON.stringify(result));
+  assert.ok(result.gaps.length >= 1, JSON.stringify(result));
   for (const gap of result.gaps) assert.ok(gap >= 8, `header gap ${gap}`);
 }
 

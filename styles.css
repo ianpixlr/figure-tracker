@@ -282,14 +282,16 @@ main:focus-visible {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  border: 2px solid var(--outline);
+  border: 0;
   border-radius: 50%;
   background: var(--elev);
   color: var(--ink);
   text-decoration: none;
-  box-shadow: none;
+  box-shadow: var(--shadow);
   flex: 0 0 auto;
 }
+
+.top-balance { width: 48px; height: 48px; }
 
 .monogram {
   font-family: var(--display);
@@ -447,15 +449,20 @@ form {
 .block, .panel, .group {
   position: relative;
   background: var(--elev);
-  border: 2px solid var(--outline);
+  border: 0;
   border-radius: var(--radius);
-  box-shadow: none;
+  box-shadow: var(--shadow);
   padding: var(--card-pad);
   color: var(--card-ink);
   outline: none;
 }
 
-.block.yellow { background: var(--yellow); }
+.block.yellow { background: var(--yellow); border: 0; }
+
+html[data-mode="dark"] article.block:not(.yellow) {
+  border: 2px solid var(--outline);
+  box-shadow: none;
+}
 
 /* Summary cards stay bright yellow with dark text in dark mode. */
 html[data-mode="dark"] .block.yellow {
@@ -501,7 +508,8 @@ html[data-mode="dark"] .block.yellow {
 .block.yellow .arrow {
   background: #141414;
   color: #fff;
-  border-color: #141414;
+  border: 0;
+  box-shadow: none;
 }
 
 .block:has(.arrow) > .card-head,
@@ -679,15 +687,17 @@ html[data-mode="dark"] .block.yellow {
 }
 
 .scope-pills {
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
   gap: 8px;
+  width: 100%;
   margin: 0 0 12px;
 }
 
 .scope-pills .chip {
+  width: 100%;
   border: 2px solid var(--outline);
-  background: transparent;
+  background: var(--elev);
 }
 
 .scope-pills .chip[aria-selected="true"] {
@@ -1041,6 +1051,7 @@ input[type="file"] {
   height: 50px;
   min-height: 50px;
   border-radius: 999px;
+  border-color: transparent;
 }
 
 .tools .search {
@@ -1052,9 +1063,10 @@ input[type="file"] {
   width: auto;
   margin: 0;
   padding: 0 14px;
-  background: var(--elev);
+  background: var(--pill);
   color: var(--muted);
-  border: 2px solid var(--outline);
+  border: 0;
+  border-color: transparent;
   box-shadow: none;
 }
 
@@ -1097,6 +1109,11 @@ input[type="file"] {
   width: auto;
   min-width: 96px;
   padding: 0 14px;
+  background: var(--pill);
+  color: var(--ink);
+  border: 0;
+  border-color: transparent;
+  box-shadow: none;
 }
 
 .block:not(.yellow) .arrow {
@@ -1250,10 +1267,10 @@ section > h2,
   min-height: 64px;
   margin: 0;
   padding: 16px;
-  border: 2px solid var(--outline);
+  border: 0;
   border-radius: var(--radius);
   background: var(--elev);
-  box-shadow: none;
+  box-shadow: var(--shadow);
 }
 
 .pick-body { min-width: 0; }
@@ -1355,11 +1372,11 @@ dialog {
   width: min(420px, calc(100% - 32px));
   max-height: calc(100% - 32px);
   padding: 20px var(--gutter);
-  border: 2px solid var(--outline);
+  border: 0;
   border-radius: var(--radius);
   background: var(--bg);
   color: var(--ink);
-  box-shadow: none;
+  box-shadow: var(--shadow);
   overflow: auto;
 }
 
