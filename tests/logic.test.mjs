@@ -28,6 +28,8 @@ import {
   filterPurchases,
   latestPriceCheck,
   normalizeFigureType,
+  saleSuggestion,
+  saleTotals,
   purchaseFilterOptions,
   rrpSearchUrl
 } from '../js/catalog.js';
@@ -607,6 +609,183 @@ test('sell search uses the figure name and series', () => {
     `https://www.google.com/search?q=${encodeURIComponent('Mindwipe Titans Return RRP')}`
   );
   assert.equal(rrpSearchUrl('Asuka Langley'), `https://www.google.com/search?q=${encodeURIComponent('Asuka Langley RRP')}`);
+});
+
+test('sale suggestions round to RM 5 and flag a thin market', () => {
+  const loose = {
+    for_sale_id: 's1',
+    figure: 'Mindwipe',
+    condition: 'Loose',
+    low_rm: 50,
+    typical_rm: 83,
+    high_rm: 110,
+    listing_count: 6,
+    checked_at: '2026-10-02'
+  };
+  const olderLoose = { ...loose, typical_rm: 40, checked_at: '2026-09-01' };
+  const misb = {
+    for_sale_id: 's1',
+    figure: 'Mindwipe',
+    condition: 'MISB',
+    low_rm: 60,
+    typical_rm: 95,
+    listing_count: 2,
+    checked_at: '2026-10-20'
+  };
+  const item = { id: 's1', name: 'Mindwipe', brand: 'Hasbro', series: 'Titans Return', condition: 'Loose', price: 60 };
+  const paid = {
+    id: 'p1',
+    name: 'mindwipe',
+    brand: 'Hasbro',
+    series: 'Titans Return',
+    date: '2026-08-01',
+    price: 40
+  };
+  const suggestion = saleSuggestion(item, [olderLoose, misb, loose], [paid]);
+  assert.equal(suggestion.listAt, 85);
+  assert.equal(suggestion.dropTo, 65);
+  assert.equal(suggestion.floor, 50);
+  assert.equal(suggestion.fewListings, false);
+  assert.equal(suggestion.listingCount, 6);
+  assert.equal(suggestion.condition, 'Loose');
+  assert.equal(suggestion.headsUp, 'Market is above your asking price. You could list higher.');
+
+  const roundedDown = saleSuggestion(
+    { ...item, price: 90 },
+    [{ ...loose, typical_rm: 82, low_rm: 52, listing_count: 4 }],
+    []
+  );
+  assert.equal(roundedDown.listAt, 80);
+  assert.equal(roundedDown.dropTo, 65);
+  assert.equal(roundedDown.floor, 50);
+  assert.equal(roundedDown.headsUp, '');
+
+  const minimum = saleSuggestion({ ...item, price: 5 }, [{ ...loose, typical_rm: 2, low_rm: 1, listing_count: 4 }], []);
+  assert.equal(minimum.listAt, 5);
+
+  const few = saleSuggestion(
+    { ...item, price: 100, condition: 'MISB' },
+    [{ ...misb, typical_rm: 100, low_rm: 90, listing_count: 2 }],
+    []
+  );
+  assert.equal(few.listAt, 100);
+  assert.equal(few.dropTo, 95);
+  assert.equal(few.floor, 85);
+  assert.equal(few.fewListings, true);
+  assert.equal(few.headsUp, '');
+
+  const missingLow = saleSuggestion(
+    { ...item, price: 80 },
+    [{ ...loose, low_rm: '', typical_rm: 80, listing_count: 8 }],
+    []
+  );
+  assert.equal(missingLow.fewListings, true);
+  assert.equal(missingLow.listAt, 80);
+  assert.equal(missingLow.floor, 65);
+  assert.ok(missingLow.floor <= missingLow.dropTo);
+  assert.ok(missingLow.dropTo <= missingLow.listAt);
+
+  assert.equal(saleSuggestion(item, [{ ...loose, listing_count: 0 }], []), null);
+  assert.equal(saleSuggestion(item, [{ ...loose, typical_rm: '' }], []), null);
+  assert.equal(saleSuggestion(item, [], []), null);
+
+  const blankCount = saleSuggestion(item, [{ ...loose, listing_count: '' }], []);
+  assert.equal(blankCount.fewListings, true);
+  assert.equal(blankCount.listingCount, null);
+
+  const fallback = saleSuggestion(
+    { ...item, condition: 'MIB' },
+    [{ ...misb, checked_at: '2026-10-01' }, { ...loose, checked_at: '2026-10-20' }],
+    []
+  );
+  assert.equal(fallback.condition, 'Loose');
+
+  const worthPaid = saleSuggestion(
+    { ...item, price: 70 },
+    [loose],
+    [paid]
+  );
+  assert.equal(worthPaid.listAt, 85);
+  assert.equal(worthPaid.dropTo, 65);
+  assert.ok(worthPaid.dropTo <= 70);
+  assert.equal(worthPaid.headsUp, 'Market is above what you paid. You could list higher.');
+
+  const notWorth = saleSuggestion(
+    { ...item, price: 90 },
+    [{ ...loose, typical_rm: 80, low_rm: 70 }],
+    [{ ...paid, price: 80 }]
+  );
+  assert.equal(notWorth.listAt, 80);
+  assert.equal(notWorth.headsUp, '');
+
+  const wrongBrand = saleSuggestion(
+    { ...item, price: 90 },
+    [{ ...loose, typical_rm: 80, low_rm: 70 }],
+    [{ ...paid, brand: 'KO', price: 20 }]
+  );
+  assert.equal(wrongBrand.listAt, 80);
+  assert.equal(wrongBrand.headsUp, '');
+  const nameOnly = saleSuggestion(
+    { ...item, brand: '', series: '', price: 90 },
+    [{ ...loose, typical_rm: 80, low_rm: 70, listing_count: 5 }],
+    [{ name: 'Mindwipe', brand: 'KO', series: 'Other', date: '2026-01-01', price: 40 }]
+  );
+  assert.equal(nameOnly.headsUp, 'Market is above what you paid. You could list higher.');
+});
+
+test('a listing can be saved and reloaded with no asking price', () => {
+  const blank = {
+    id: 'open',
+    name: 'Mindwipe',
+    brand: 'Hasbro',
+    series: 'Titans Return',
+    condition: 'Loose',
+    original_amount: '',
+    currency: '',
+    fx_rate: '',
+    amount_rm: '',
+    notes: '',
+    status: 'Listed'
+  };
+  const priced = {
+    id: 'priced',
+    name: 'Bumblebee',
+    condition: 'MISB',
+    price: 100,
+    originalAmount: 100,
+    currency: 'MYR',
+    status: 'listed'
+  };
+  const soldBlank = {
+    id: 'sold-blank',
+    name: 'Prime',
+    condition: 'MIB',
+    amount_rm: '',
+    status: 'sold',
+    sold_amount_rm: 80,
+    sold_original_amount: 80,
+    sold_currency: 'MYR',
+    sold_date: '2026-10-02'
+  };
+  const once = normalizeData({
+    settings: { monthlyCap: 400, trackingStart: '2026-10' },
+    purchases: [],
+    wishlist: [],
+    forSale: [blank, priced, soldBlank, { id: 'bad', name: 'Nope', condition: 'MISB', amount_rm: 'abc' }]
+  }, '2026-10');
+  assert.equal(once.forSale.length, 3);
+  const open = once.forSale.find((item) => item.id === 'open');
+  assert.equal(open.price, null);
+  assert.equal(open.originalAmount, null);
+  const again = normalizeData(JSON.parse(JSON.stringify(once)), '2026-10');
+  assert.equal(again.forSale.find((item) => item.id === 'open').price, null);
+  const store = memory();
+  save(once, store);
+  const loaded = load('2026-10', store);
+  assert.equal(loaded.data.forSale.find((item) => item.id === 'open').price, null);
+  assert.deepEqual(saleTotals(loaded.data.forSale), { asking: 100, earned: 80 });
+  assert.equal(saleTotals([{ price: null, status: 'listed' }, { price: 0, status: 'sold', soldPrice: null }]).asking, 0);
+  assert.equal(saleTotals([{ price: null, status: 'sold', soldPrice: null }]).earned, 0);
 });
 
 test('figure types migrate once and custom categories persist', () => {

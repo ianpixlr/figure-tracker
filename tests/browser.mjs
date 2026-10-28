@@ -1598,11 +1598,15 @@ async function main() {
     await typeInto(page, '[data-check-form] input[name="high"]', '80');
     await typeInto(page, '[data-check-form] input[name="rrp"]', 'RM 90');
     await press(page, '[data-check-form] button[type="submit"]');
-    await page.waitForFunction(() => document.body.innerText.includes('Market RM 40 / 55 / 80 · RRP RM 90'));
+    await page.waitForFunction(() => document.body.innerText.includes('RRP RM 90.00'));
     await go(page, '#sell', 'article.block');
     const cardText = await page.$eval('article.block', (el) => el.innerText);
-    assert.match(cardText, /Market RM 40 \/ 55 \/ 80 · RRP RM 90/);
-    assert.match(cardText, /Carousell · \d{1,2} \w{3}/);
+    assert.match(cardText, /RM 40\.00/);
+    assert.match(cardText, /RM 55\.00/);
+    assert.match(cardText, /RM 80\.00/);
+    assert.match(cardText, /RRP RM 90\.00 · \d{1,2} \w{3}/);
+    assert.equal(cardText.includes('Market RM'), false);
+    assert.equal(await page.$eval('article.block .check-sources', (el) => el.hidden), true);
     assert.equal(/\d{2}:\d{2}/.test(cardText), false);
     assert.equal(await page.$('article [data-check-form]'), null);
     await assertTypeScale(page);
@@ -1613,7 +1617,7 @@ async function main() {
     await assertNoOverflow(page);
     await press(page, 'a[href^="#edit-sale/"]');
     await page.waitForSelector('#sale-form');
-    await page.waitForFunction(() => document.body.innerText.includes('Market RM 40 / 55 / 80 · RRP RM 90'));
+    await page.waitForFunction(() => document.body.innerText.includes('RRP RM 90.00'));
     await assertTypeScale(page);
     await assertAlignment(page);
     await page.setViewport({ width: 360, height: 844, isMobile: true, hasTouch: true, deviceScaleFactor: 2 });

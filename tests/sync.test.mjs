@@ -248,6 +248,50 @@ test('sheet headers match the rows the app sends', () => {
   });
   assert.deepEqual(Object.keys(sale), SALE_COLUMNS);
   assert.equal(sale.amount_rm, 50);
+  const unpriced = saleRow({
+    ...{
+      id: 's2',
+      name: 'Mindwipe',
+      brand: 'Hasbro',
+      series: 'Titans Return',
+      condition: 'Loose',
+      originalAmount: null,
+      currency: '',
+      fxRate: null,
+      fxDate: '',
+      price: null,
+      fxOverridden: false,
+      fxCached: false,
+      notes: '',
+      status: 'listed',
+      soldOriginalAmount: null,
+      soldCurrency: '',
+      soldFxRate: null,
+      soldFxDate: '',
+      soldFxOverridden: false,
+      soldFxCached: false,
+      soldPrice: null,
+      soldDate: '',
+      createdAt: '2026-10-02T00:00:00.000Z',
+      updatedAt: '2026-10-02T00:00:00.000Z'
+    }
+  });
+  assert.equal(unpriced.amount_rm, '');
+  assert.equal(unpriced.original_amount, '');
+  assert.equal(unpriced.fx_rate, '');
+  assert.notEqual(unpriced.amount_rm, 0);
+  const reloaded = normalizeData({
+    settings: { monthlyCap: 400, trackingStart: '2026-10', categories: [] },
+    purchases: [],
+    wishlist: [],
+    forSale: [unpriced]
+  }, '2026-10');
+  assert.equal(reloaded.forSale.length, 1);
+  assert.equal(reloaded.forSale[0].price, null);
+  assert.equal(saleRow(reloaded.forSale[0]).amount_rm, '');
+  const outgoing = script.slice(script.indexOf('function outgoing'), script.indexOf('function findRow'));
+  assert.match(outgoing, /String\(value\)\.trim\(\) === ''/);
+  assert.ok(outgoing.indexOf("return ''") < outgoing.indexOf('Number(value)'));
 });
 
 test('the queue keeps the latest upsert and lets a delete replace it', () => {

@@ -1161,6 +1161,33 @@ button:disabled { opacity: 0.45; cursor: not-allowed; }
 
 .check { margin-top: 12px; }
 
+.suggest {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 12px;
+}
+
+.suggest-meta,
+.suggest-note,
+.check-meta {
+  margin: 12px 0 0;
+}
+
+.check .text-btn { margin-top: 12px; }
+
+.check-sources {
+  display: grid;
+  gap: 12px;
+  margin-top: 12px;
+}
+
+.check-sources p { margin: 0; }
+
+.check-sources a {
+  overflow-wrap: anywhere;
+}
+
 .check-empty { margin-top: 4px; color: var(--muted); }
 
 .check-line { margin: 8px 0 0; }
