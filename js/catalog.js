@@ -314,11 +314,19 @@ export function priceCheckAmount(value) {
   return parseMoney(value);
 }
 
-export function carousellSearchUrl(name, condition) {
-  const query = [name, condition].map((part) => String(part || '').trim()).filter(Boolean).join(' ');
-  return `https://www.carousell.com.my/search/${encodeURIComponent(query)}`;
+// Name, then series, unless the series is already written in the name.
+function figureSearchQuery(name, series) {
+  const figure = String(name || '').trim();
+  const line = String(series || '').trim();
+  if (!line || figure.toLowerCase().includes(line.toLowerCase())) return figure;
+  return [figure, line].filter(Boolean).join(' ');
 }
 
-export function rrpSearchUrl(name) {
-  return `https://www.google.com/search?q=${encodeURIComponent(`${String(name || '').trim()} RRP`)}`;
+export function carousellSearchUrl(name, series) {
+  return `https://www.carousell.com.my/search/${encodeURIComponent(figureSearchQuery(name, series))}`;
+}
+
+export function rrpSearchUrl(name, series) {
+  const query = [figureSearchQuery(name, series), 'RRP'].filter(Boolean).join(' ');
+  return `https://www.google.com/search?q=${encodeURIComponent(query)}`;
 }

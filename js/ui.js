@@ -1048,8 +1048,8 @@ function saleCard(item, index) {
 function searchPills(item) {
   return `
     <div class="search-pills" data-edge>
-      <a class="btn btn-primary" href="${esc(carousellSearchUrl(item.name, item.condition))}" target="_blank" rel="noopener noreferrer">Search Carousell</a>
-      <a class="btn btn-primary" href="${esc(rrpSearchUrl(item.name))}" target="_blank" rel="noopener noreferrer">Search RRP</a>
+      <a class="btn btn-primary" href="${esc(carousellSearchUrl(item.name, item.series))}" target="_blank" rel="noopener noreferrer">Search Carousell</a>
+      <a class="btn btn-primary" href="${esc(rrpSearchUrl(item.name, item.series))}" target="_blank" rel="noopener noreferrer">Search RRP</a>
     </div>
   `;
 }

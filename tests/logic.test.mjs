@@ -579,9 +579,32 @@ test('filters, category totals, and the latest price check', () => {
   assert.equal(byName.typical_rm, 55);
   assert.equal(latestPriceCheck({ id: 'x', name: 'Nope', condition: 'MIB' }, checks), null);
   assert.equal(latestPriceCheck(listing, []), null);
+});
+
+test('sell search uses the figure name and series', () => {
   assert.equal(
-    carousellSearchUrl('Asuka Langley', 'MISB'),
-    `https://www.carousell.com.my/search/${encodeURIComponent('Asuka Langley MISB')}`
+    carousellSearchUrl('Mindwipe', 'Titans Return'),
+    `https://www.carousell.com.my/search/${encodeURIComponent('Mindwipe Titans Return')}`
+  );
+  assert.equal(
+    carousellSearchUrl('Mindwipe Titans Return', 'titans return'),
+    `https://www.carousell.com.my/search/${encodeURIComponent('Mindwipe Titans Return')}`
+  );
+  assert.equal(
+    carousellSearchUrl('Mindwipe', ''),
+    `https://www.carousell.com.my/search/${encodeURIComponent('Mindwipe')}`
+  );
+  assert.equal(
+    carousellSearchUrl('Mindwipe', '   '),
+    `https://www.carousell.com.my/search/${encodeURIComponent('Mindwipe')}`
+  );
+  assert.equal(
+    rrpSearchUrl('Mindwipe', 'Titans Return'),
+    `https://www.google.com/search?q=${encodeURIComponent('Mindwipe Titans Return RRP')}`
+  );
+  assert.equal(
+    rrpSearchUrl('Mindwipe Titans Return', 'Titans Return'),
+    `https://www.google.com/search?q=${encodeURIComponent('Mindwipe Titans Return RRP')}`
   );
   assert.equal(rrpSearchUrl('Asuka Langley'), `https://www.google.com/search?q=${encodeURIComponent('Asuka Langley RRP')}`);
 });

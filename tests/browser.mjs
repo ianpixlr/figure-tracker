@@ -1588,7 +1588,7 @@ async function main() {
     assert.equal(await page.$('article [data-check-form]'), null);
     const caro = await page.$eval('article a[href*="carousell.com.my"]', (el) => el.getAttribute('href'));
     const rrp = await page.$eval('article a[href*="google.com/search"]', (el) => el.getAttribute('href'));
-    assert.equal(caro, `https://www.carousell.com.my/search/${encodeURIComponent('Mari MISB')}`);
+    assert.equal(caro, `https://www.carousell.com.my/search/${encodeURIComponent('Mari')}`);
     assert.equal(rrp, `https://www.google.com/search?q=${encodeURIComponent('Mari RRP')}`);
     await press(page, 'a[href^="#edit-sale/"]');
     await page.waitForSelector('[data-check-form] input[name="source"]');
