@@ -31,6 +31,7 @@ import {
   filterPurchases,
   purchaseFilterOptions,
   latestPriceCheck,
+  saleSuggestion,
   preorderStatusLabel,
   rrpSearchUrl,
   priceCheckAmount,
@@ -1033,10 +1034,10 @@ function saleCard(item, index) {
       </div>
       ${identityMeta([item.brand, item.series])}
       <h3 data-edge>${esc(item.name)}</h3>
-      <p class="block-value" data-edge>${formatRM(item.price)}</p>
+      <p class="block-value" data-edge>${item.price == null ? 'No price yet' : formatRM(item.price)}</p>
       ${sourceLine(item)}
       ${searchPills(item)}
-      <div class="check" data-check-for="${esc(item.id)}">${priceCheckLine(item, cachedPriceChecks())}</div>
+      <div class="check" data-check-for="${esc(item.id)}">${priceCheckLine(item, cachedPriceChecks(), purchasesForCheck())}</div>
       <div class="btn-row">
         <a class="btn btn-ghost" href="#edit-sale/${encodeURIComponent(item.id)}">Edit</a>
         <button class="btn btn-ghost" type="button" data-action="delete-sale" data-id="${esc(item.id)}">Delete</button>
@@ -1103,23 +1104,126 @@ function checkDay(value) {
   return formatDay(match[1]);
 }
 
-function priceCheckLine(item, checks) {
-  const check = latestPriceCheck(item, checks);
-  if (!check) return '<p class="check-empty" data-edge>No price check yet.</p>';
-  const prices = [check.low_rm, check.typical_rm, check.high_rm].map((value) => ringgitCompact(value).replace(/^RM\s/, '')).filter(Boolean);
-  const rrpAmount = ringgitCompact(check.rrp);
-  const rrpRaw = String(check.rrp || '').trim();
-  const rrp = rrpAmount || rrpRaw;
-  const parts = [];
-  if (prices.length) parts.push(`Market RM ${prices.join(' / ')}`);
-  if (rrp) parts.push(`RRP ${rrpAmount ? rrpAmount : rrp}`);
-  const source = String(check.sources || '').trim() || String(check.rrp_source || '').trim();
-  const when = checkDay(check.checked_at);
-  const detail = [source, when].filter(Boolean).join(' · ');
-  if (!parts.length && !detail) return '<p class="check-empty" data-edge>No price check yet.</p>';
+function purchasesForCheck() {
+  const loaded = currentData();
+  return loaded.corrupt ? [] : (loaded.data.purchases || []);
+}
+
+function suggestionHtml(item, checks, purchases) {
+  const suggestion = saleSuggestion(item, checks, purchases);
+  if (!suggestion) return '';
+  const count = suggestion.listingCount;
+  const listings = count == null
+    ? 'Carousell listings'
+    : `${count} Carousell ${count === 1 ? 'listing' : 'listings'}`;
+  const condition = suggestion.condition ? `, ${suggestion.condition}` : '';
+  const few = suggestion.fewListings ? ' · Few listings' : '';
+  const cells = [
+    ['List at', suggestion.listAt],
+    ['Drop to', suggestion.dropTo],
+    ['Floor', suggestion.floor]
+  ];
   return `
-    ${parts.length ? `<p class="check-line" data-edge>${withAmounts(parts.join(' · '))}</p>` : ''}
-    ${detail ? `<p class="check-sub" data-edge>${esc(detail)}</p>` : ''}
+    <div class="suggest" data-suggest data-edge>
+      ${cells.map(([label, amount]) => `
+        <div>
+          <p class="spec-label">${esc(label)}</p>
+          <p class="stat-v">${formatRM(amount)}</p>
+        </div>
+      `).join('')}
+    </div>
+    <p class="meta suggest-meta" data-edge>Based on ${esc(listings)}${esc(condition)}${esc(few)}</p>
+    ${suggestion.headsUp ? `<p class="meta suggest-note" data-edge>${esc(suggestion.headsUp)}</p>` : ''}
+  `;
+}
+
+function marketAmount(value) {
+  const amount = priceCheckAmount(value);
+  return amount == null ? '' : formatRM(amount);
+}
+
+function rrpMeta(check) {
+  const raw = String(check?.rrp || '').trim();
+  if (!raw) return '';
+  const amount = priceCheckAmount(raw);
+  const letters = raw.replace(/rm/gi, '').replace(/[\d.,\s]/g, '');
+  if (amount != null && !letters) return `RRP ${formatRM(amount)}`;
+  return `RRP ${raw}`;
+}
+
+function listingMeta(check) {
+  const raw = check?.listing_count;
+  if (raw == null || String(raw).trim() === '') return '';
+  const count = Number(raw);
+  if (!Number.isFinite(count)) return '';
+  const n = Math.round(count);
+  return `${n} ${n === 1 ? 'listing' : 'listings'}`;
+}
+
+function sampleLinks(value) {
+  return String(value || '')
+    .split(/\s+\|\s+|\n/)
+    .map((part) => part.trim())
+    .filter((part) => /^https?:\/\//i.test(part));
+}
+
+function sourceDetails(check) {
+  const notes = String(check?.sources || '').trim();
+  const rrpSource = String(check?.rrp_source || '').trim();
+  const links = sampleLinks(check?.sample_links);
+  if (/^https?:\/\//i.test(rrpSource) && !links.includes(rrpSource)) links.push(rrpSource);
+  const extra = rrpSource && !/^https?:\/\//i.test(rrpSource) ? rrpSource : '';
+  return { notes, extra, links };
+}
+
+function marketHtml(check) {
+  const cells = [
+    ['Low', marketAmount(check.low_rm)],
+    ['Typical', marketAmount(check.typical_rm)],
+    ['High', marketAmount(check.high_rm)]
+  ];
+  if (!cells.some(([, amount]) => amount)) return '';
+  return `
+    <div class="suggest" data-market data-edge>
+      ${cells.map(([label, amount]) => `
+        <div>
+          <p class="spec-label">${esc(label)}</p>
+          <p class="stat-v">${amount ? amount : '—'}</p>
+        </div>
+      `).join('')}
+    </div>
+  `;
+}
+
+function sourcesHtml(check) {
+  const { notes, extra, links } = sourceDetails(check);
+  if (!notes && !extra && !links.length) return '';
+  const linkHtml = links.map((href) => `
+    <a href="${esc(href)}" target="_blank" rel="noopener noreferrer">${esc(href)}</a>
+  `).join('');
+  return `
+    <button class="text-btn" type="button" data-action="toggle-sources" aria-expanded="false">Sources</button>
+    <div class="check-sources" hidden>
+      ${notes ? `<p class="meta" data-edge>${esc(notes)}</p>` : ''}
+      ${extra ? `<p class="meta" data-edge>${esc(extra)}</p>` : ''}
+      ${linkHtml}
+    </div>
+  `;
+}
+
+function priceCheckLine(item, checks, purchases = purchasesForCheck()) {
+  const check = latestPriceCheck(item, checks);
+  const suggestion = suggestionHtml(item, checks, purchases);
+  if (!check) return '<p class="check-empty" data-edge>No price check yet.</p>';
+  const market = marketHtml(check);
+  const meta = [rrpMeta(check), listingMeta(check), checkDay(check.checked_at)].filter(Boolean).join(' · ');
+  const sources = sourcesHtml(check);
+  if (!market && !meta && !sources) return `<p class="check-empty" data-edge>No price check yet.</p>${suggestion}`;
+  return `
+    ${market}
+    ${meta ? `<p class="meta check-meta" data-edge>${esc(meta)}</p>` : ''}
+    ${sources}
+    ${suggestion}
   `;
 }
 
@@ -1535,6 +1639,13 @@ function onClick(event) {
       box.querySelectorAll('[data-money]').forEach((block) => scheduleFx(block));
     }
     button.hidden = true;
+  }
+  if (action === 'toggle-sources') {
+    const panel = button.nextElementSibling;
+    const open = button.getAttribute('aria-expanded') === 'true';
+    button.setAttribute('aria-expanded', open ? 'false' : 'true');
+    if (panel?.classList.contains('check-sources')) panel.hidden = open;
+    return;
   }
   if (action === 'toggle-chart') {
     chartExpanded = !chartExpanded;
@@ -2079,7 +2190,18 @@ async function saveSale(form, id) {
     showFormError(form, 'Use a shorter note.');
     return;
   }
-  const asking = await resolveMoney(form.querySelector('[data-money]:not([data-prefix="sold"])'));
+  const askingField = fieldValue(form, 'originalAmount').trim();
+  const asking = askingField
+    ? await resolveMoney(form.querySelector('[data-money]:not([data-prefix="sold"])'))
+    : {
+      originalAmount: null,
+      currency: '',
+      fxRate: null,
+      fxDate: '',
+      fxOverridden: false,
+      fxCached: false,
+      price: null
+    };
   if (!form.isConnected) return;
   if (asking.error) {
     showFormError(form, asking.error);
@@ -2503,7 +2625,7 @@ function fillCheckSlots() {
   const checks = cachedPriceChecks();
   document.querySelectorAll('[data-check-for]').forEach((slot) => {
     const item = loaded.data.forSale.find((sale) => sale.id === slot.dataset.checkFor);
-    if (item) slot.innerHTML = priceCheckLine(item, checks);
+    if (item) slot.innerHTML = priceCheckLine(item, checks, loaded.data.purchases);
   });
 }
 

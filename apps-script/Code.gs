@@ -258,7 +258,8 @@ function asDateTime(value) {
 }
 
 function outgoing(header, value) {
-  if (value == null || value === '') return '';
+  // Blank money and rates stay blank. Number('') is 0, so an empty cell must not be coerced.
+  if (value == null || String(value).trim() === '') return '';
   if (DATE_COLUMNS[header]) return asDateOnly(value);
   if (DATETIME_COLUMNS[header]) return asDateTime(value);
   if (typeof value === 'number' && isFinite(value)) return value;

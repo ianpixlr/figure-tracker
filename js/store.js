@@ -390,16 +390,43 @@ function cleanWish(input, seen, categories = []) {
   }, input, categories);
 }
 
+const ASKING_KEYS = ['originalAmount', 'original_amount', 'amountRm', 'amount_rm', 'price', 'askingPrice', 'asking_price_rm'];
+
+function askingProvided(input) {
+  return ASKING_KEYS.some((key) => {
+    const value = input?.[key];
+    if (value == null || String(value).trim() === '') return false;
+    const amount = parseMoney(value);
+    if (amount === 0) return false;
+    return true;
+  });
+}
+
+function emptyAsking() {
+  return {
+    originalAmount: null,
+    currency: '',
+    fxRate: null,
+    fxDate: '',
+    fxOverridden: false,
+    fxCached: false,
+    price: null
+  };
+}
+
 function cleanSale(input, seen, categories = []) {
   if (!input || typeof input !== 'object') return null;
   const name = clip(input.name, 80);
   if (!name) return null;
   const condition = SALE_CONDITIONS.has(input.condition) ? input.condition : '';
   if (!condition) return null;
-  const asking = cleanMoney({
+  const askingInput = {
     ...input,
     price: input.price ?? input.askingPrice ?? input.asking_price_rm
-  }, input.createdAt, ['amountRm', 'amount_rm', 'price', 'askingPrice', 'asking_price_rm']);
+  };
+  const asking = askingProvided(askingInput)
+    ? cleanMoney(askingInput, input.createdAt, ['amountRm', 'amount_rm', 'price', 'askingPrice', 'asking_price_rm'])
+    : emptyAsking();
   if (!asking) return null;
 
   let status = input.status === 'sold' ? 'sold' : 'listed';

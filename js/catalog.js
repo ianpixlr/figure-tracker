@@ -314,6 +314,128 @@ export function priceCheckAmount(value) {
   return parseMoney(value);
 }
 
+const FIVE_CENTS = 500;
+
+function nearestFive(amount) {
+  const cents = toCents(amount);
+  if (cents == null) return null;
+  return fromCents(Math.round(cents / FIVE_CENTS) * FIVE_CENTS);
+}
+
+function downFive(amount) {
+  const cents = toCents(amount);
+  if (cents == null) return null;
+  return fromCents(Math.floor(cents / FIVE_CENTS) * FIVE_CENTS);
+}
+
+function listingCount(check) {
+  const raw = check?.listing_count;
+  if (raw == null || String(raw).trim() === '') return null;
+  const count = Number(raw);
+  if (!Number.isFinite(count)) return null;
+  return count;
+}
+
+function checksForSale(item, checks) {
+  const id = String(item?.id || '');
+  const name = String(item?.name || '').trim().toLowerCase();
+  return (Array.isArray(checks) ? checks : []).filter((check) => {
+    if (!check || typeof check !== 'object') return false;
+    if (id && String(check.for_sale_id || '') === id) return true;
+    return name && String(check.figure || '').trim().toLowerCase() === name;
+  });
+}
+
+// The listing's own condition first. Otherwise the latest check for this figure.
+function suggestionCheck(item, checks) {
+  const mine = checksForSale(item, checks);
+  const condition = String(item?.condition || '').trim().toLowerCase();
+  const matched = mine.filter((check) => String(check.condition || '').trim().toLowerCase() === condition);
+  return newest(matched.length ? matched : mine);
+}
+
+function textKey(value) {
+  return String(value || '').trim().toLowerCase();
+}
+
+function paidRm(purchase) {
+  const cents = capPayments(purchase).reduce((sum, payment) => sum + (toCents(payment.amount) ?? 0), 0);
+  return cents > 0 ? fromCents(cents) : null;
+}
+
+// Same figure name. Brand and series count only when the listing has them.
+function paidForSale(item, purchases) {
+  const name = textKey(item?.name);
+  if (!name) return null;
+  const brand = textKey(item?.brand);
+  const series = textKey(item?.series);
+  const matches = (Array.isArray(purchases) ? purchases : []).filter((purchase) => {
+    if (textKey(purchase?.name) !== name) return false;
+    if (brand && textKey(purchase.brand) !== brand) return false;
+    if (series && textKey(purchase.series) !== series) return false;
+    return paidRm(purchase) != null;
+  });
+  matches.sort((a, b) => (
+    String(b.date || '').localeCompare(String(a.date || ''))
+    || String(b.createdAt || '').localeCompare(String(a.createdAt || ''))
+  ));
+  return matches.length ? paidRm(matches[0]) : null;
+}
+
+// List / drop / floor from one price check. Null when the check cannot be used.
+export function saleSuggestion(item, checks, purchases = []) {
+  const check = suggestionCheck(item, checks);
+  if (!check) return null;
+  const count = listingCount(check);
+  if (count === 0) return null;
+  const typical = priceCheckAmount(check.typical_rm);
+  if (typical == null || typical <= 0) return null;
+  const low = priceCheckAmount(check.low_rm);
+  const hasLow = low != null && low > 0;
+  const fewListings = count == null || count < 3 || !hasLow;
+  const listAt = Math.max(5, nearestFive(typical));
+  const mid = hasLow ? (typical + low) / 2 : typical * 0.925;
+  const dropTo = Math.min(listAt, nearestFive(mid));
+  const eightyFive = Math.floor(toCents(typical) * 85 / 100);
+  const rawFloor = fewListings ? fromCents(Math.floor(eightyFive / FIVE_CENTS) * FIVE_CENTS) : downFive(low);
+  const floor = Math.min(dropTo, rawFloor);
+  const asking = priceCheckAmount(item?.price);
+  const paid = paidForSale(item, purchases);
+  const abovePaid = paid != null && toCents(listAt) * 5 >= toCents(paid) * 6;
+  let headsUp = '';
+  if (asking != null && asking < dropTo) {
+    headsUp = 'Market is above your asking price. You could list higher.';
+  } else if (abovePaid) {
+    headsUp = 'Market is above what you paid. You could list higher.';
+  }
+  return {
+    listAt,
+    dropTo,
+    floor,
+    fewListings,
+    listingCount: count,
+    condition: String(check.condition || '').trim(),
+    headsUp
+  };
+}
+
+// Asking totals and money already received. A listing with no price is left out.
+export function saleTotals(items) {
+  let asking = 0;
+  let earned = 0;
+  for (const item of Array.isArray(items) ? items : []) {
+    if (item?.price != null && item.price !== '') {
+      const cents = toCents(item.price);
+      if (cents != null && cents > 0) asking += cents;
+    }
+    if (item?.status === 'sold' && item?.soldPrice != null && item.soldPrice !== '') {
+      const cents = toCents(item.soldPrice);
+      if (cents != null && cents > 0) earned += cents;
+    }
+  }
+  return { asking: fromCents(asking), earned: fromCents(earned) };
+}
+
 // Name, then series, unless the series is already written in the name.
 function figureSearchQuery(name, series) {
   const figure = String(name || '').trim();
