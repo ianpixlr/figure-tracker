@@ -72,6 +72,7 @@ import {
   isConfiguredUrl,
   kickSync,
   priceCheckRow,
+  onSheetMerge,
   pullPriceChecks,
   purchaseRow,
   rememberLocalCheck,
@@ -116,6 +117,7 @@ let lastRouteKey = '';
 let saving = false;
 
 export function start() {
+  onSheetMerge(() => render());
   bindTheme();
   document.addEventListener('pointerdown', onConditionPointerDown, true);
   document.addEventListener('click', onConditionClick, true);
@@ -2332,13 +2334,14 @@ async function saveSettings(form) {
   }
   const loaded = currentData();
   if (loaded.corrupt) return;
-  const previous = loaded.data.settings.syncUrl;
+  const previousUrl = loaded.data.settings.syncUrl;
+  const previousCap = loaded.data.settings.monthlyCap;
   loaded.data.settings.monthlyCap = cap;
   loaded.data.settings.rollover = fieldChecked(form, 'rollover');
   loaded.data.settings.overspendPayback = fieldChecked(form, 'payback');
   loaded.data.settings.syncUrl = syncText;
   if (!persist(loaded.data)) return;
-  if (resolveSyncUrl(loaded.data.settings) && syncText !== previous) {
+  if (resolveSyncUrl(loaded.data.settings) && (syncText !== previousUrl || cap !== previousCap)) {
     const result = await syncAllNow(loaded.data);
     if (!form.isConnected && result) {
       showToast(result.ok ? 'Settings saved.' : 'Settings saved. The sheet will retry.');

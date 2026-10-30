@@ -134,6 +134,13 @@ async function main() {
       request.continue().catch(() => {});
     });
 
+    await page.evaluateOnNewDocument((payload) => {
+      if (!localStorage.getItem('figure-cap.v1')) {
+        localStorage.setItem('figure-cap.v1', payload);
+        localStorage.removeItem('figure-cap.sync-full.v1');
+        localStorage.removeItem('figure-cap.sync-queue.v1');
+      }
+    }, JSON.stringify(stored));
     await page.goto(BASE, { waitUntil: 'networkidle0' });
     await page.waitForSelector('#month-title');
     await page.evaluate((payload) => {
