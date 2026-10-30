@@ -1,9 +1,14 @@
 // Sheet sync. The page keeps localStorage as the copy it edits.
+// A full sync deletes sheet rows that are missing from the payload, so the app
+// pulls purchases, the wishlist, and listings first and keeps the newer updated_at.
 // Posts use text/plain so the Apps Script web app does not require a CORS preflight.
 // The deployed web app is the default, so a new phone syncs without pasting a URL.
 
-import { priorityLabel } from './budget.js';
-import { boughtAsLabel, figureTypeLabel, purchaseStatusLabel, saleStatusLabel } from './catalog.js';
+import { PRIORITY_OPTIONS, priorityLabel } from './budget.js';
+import { SALE_STATUSES, boughtAsLabel, derivedPurchaseStatus, figureTypeLabel, normalizeBoughtAs, normalizeFigureType, purchaseStatusLabel, saleStatusLabel } from './catalog.js';
+import { parseMoney } from './money.js';
+import { looksLikeData, normalizeData, save } from './store.js';
+import { TZ, currentMonth, todayYMD } from './time.js';
 
 export const DEFAULT_SYNC_URL = 'https://script.google.com/macros/s/AKfycbzyj824VHT6WrJLZhHw-ufaf4tAT6BkvqQa3Ck_VloV2kV5vnP8JPpr3XKrOeAdzfjX4g/exec';
 
@@ -50,6 +55,9 @@ let storageImpl = null;
 let phase = 'off';
 let running = false;
 let again = false;
+let mergeListener = null;
+let dataSource = () => null;
+let gate = Promise.resolve();
 
 export function isConfiguredUrl(value) {
   const text = String(value || '').trim();
@@ -88,6 +96,8 @@ export function resetSyncForTests() {
   phase = 'off';
   running = false;
   again = false;
+  mergeListener = null;
+  dataSource = () => null;
   storageImpl = memory();
   return storageImpl;
 }
@@ -100,6 +110,10 @@ function notify() {
 export function subscribe(listener) {
   listeners.add(listener);
   return () => listeners.delete(listener);
+}
+
+export function onSheetMerge(listener) {
+  mergeListener = listener;
 }
 
 function needsFull() {
@@ -315,6 +329,227 @@ export function saleRow(item) {
   });
 }
 
+function isBlank(value) {
+  return value == null || String(value).trim() === '';
+}
+
+function isYes(value) {
+  const text = String(value ?? '').trim().toLowerCase();
+  return value === true || text === 'yes' || text === 'true';
+}
+
+function amountValue(value) {
+  if (isBlank(value)) return null;
+  const parsed = parseMoney(value);
+  return parsed == null ? null : parsed;
+}
+
+function rateValue(value) {
+  if (isBlank(value)) return null;
+  const number = typeof value === 'number' ? value : Number(String(value).trim());
+  if (!Number.isFinite(number) || number <= 0) return null;
+  return number;
+}
+
+function moneyCode(value) {
+  const code = String(value ?? '').trim().toUpperCase();
+  return /^[A-Z]{3}$/.test(code) ? code : '';
+}
+
+function ymdValue(value) {
+  if (value instanceof Date) {
+    if (Number.isNaN(value.getTime())) return '';
+    return todayYMD(value);
+  }
+  const text = String(value ?? '').trim();
+  const match = text.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  return match ? `${match[1]}-${match[2]}-${match[3]}` : '';
+}
+
+// Sheet datetimes are Malaysia wall time (yyyy-MM-dd HH:mm). Instants stay instants.
+function sheetInstant(value) {
+  if (value instanceof Date) {
+    const ms = value.getTime();
+    return Number.isNaN(ms) ? 0 : ms;
+  }
+  const text = String(value ?? '').trim();
+  if (!text) return 0;
+  if (/^\d{4}-\d{2}-\d{2}T/.test(text) || /[zZ]$/.test(text) || /[+-]\d{2}:\d{2}$/.test(text)) {
+    const parsed = Date.parse(text);
+    return Number.isNaN(parsed) ? 0 : parsed;
+  }
+  const match = text.match(/^(\d{4})-(\d{2})-(\d{2})(?:[ T](\d{2}):(\d{2})(?::(\d{2}))?)?$/);
+  if (!match) {
+    const parsed = Date.parse(text);
+    return Number.isNaN(parsed) ? 0 : parsed;
+  }
+  return zonedUtc(
+    Number(match[1]),
+    Number(match[2]),
+    Number(match[3]),
+    Number(match[4] || 0),
+    Number(match[5] || 0),
+    Number(match[6] || 0),
+    TZ
+  );
+}
+
+function zonedUtc(year, month, day, hour, minute, second, timeZone) {
+  const utcGuess = Date.UTC(year, month - 1, day, hour, minute, second);
+  const parts = new Intl.DateTimeFormat('en-GB', {
+    timeZone,
+    hourCycle: 'h23',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit'
+  }).formatToParts(new Date(utcGuess));
+  const map = Object.fromEntries(parts.filter((part) => part.type !== 'literal').map((part) => [part.type, part.value]));
+  let wallHour = Number(map.hour);
+  if (wallHour === 24) wallHour = 0;
+  const asUtc = Date.UTC(Number(map.year), Number(map.month) - 1, Number(map.day), wallHour, Number(map.minute), Number(map.second));
+  return utcGuess - (asUtc - utcGuess);
+}
+
+function fromSheetTime(value) {
+  return new Date(sheetInstant(value)).toISOString();
+}
+
+function priorityValue(value) {
+  const key = String(value ?? '').trim().toLowerCase();
+  const match = PRIORITY_OPTIONS.find((item) => item.value === key || item.label.toLowerCase() === key);
+  return match ? match.value : 'really';
+}
+
+function saleStatusValue(value) {
+  const key = String(value ?? '').trim().toLowerCase();
+  const match = SALE_STATUSES.find((item) => item.value === key || item.label.toLowerCase() === key);
+  return match ? match.value : 'listed';
+}
+
+function preorderStatusValue(value) {
+  const key = String(value ?? '').trim().toLowerCase();
+  if (key === 'deposit paid' || key === 'fully paid') return key;
+  return '';
+}
+
+function rowId(row) {
+  const id = String(row?.id ?? '').trim();
+  return id;
+}
+
+// Inverse of purchaseRow. Sheet scales that became dates (2026-01-12, 2026-01-06)
+// map back through normalizeFigureType. Amounts are numbers; blank money stays null.
+export function purchaseFromRow(row, categories = []) {
+  if (!row || typeof row !== 'object') return null;
+  const id = rowId(row);
+  if (!id) return null;
+  const boughtAs = normalizeBoughtAs(row.bought_as ?? row.boughtAs, '');
+  const preorderStatus = preorderStatusValue(row.preorder_status ?? row.preorderStatus);
+  return {
+    id,
+    date: ymdValue(row.date),
+    name: String(row.name ?? ''),
+    series: String(row.series ?? ''),
+    brand: String(row.brand ?? ''),
+    figureType: normalizeFigureType(row.type ?? row.figureType ?? '', categories),
+    boughtAs,
+    condition: String(row.condition ?? ''),
+    originalAmount: amountValue(row.original_amount ?? row.originalAmount),
+    currency: moneyCode(row.currency),
+    fxRate: rateValue(row.fx_rate ?? row.fxRate),
+    fxDate: ymdValue(row.fx_date ?? row.fxDate),
+    price: amountValue(row.amount_rm ?? row.price),
+    fxOverridden: isYes(row.fx_overridden ?? row.fxOverridden),
+    fxCached: isYes(row.fx_cached ?? row.fxCached),
+    shop: String(row.shop ?? ''),
+    status: derivedPurchaseStatus(boughtAs, preorderStatus),
+    notes: String(row.notes ?? row.note ?? ''),
+    estFullOriginalAmount: amountValue(row.est_full_original_amount),
+    estFullCurrency: moneyCode(row.est_full_currency),
+    estFullFxRate: rateValue(row.est_full_fx_rate),
+    estFullFxDate: ymdValue(row.est_full_fx_date),
+    estFullPrice: amountValue(row.est_full_price),
+    estFullFxOverridden: isYes(row.est_full_fx_overridden),
+    estFullFxCached: isYes(row.est_full_fx_cached),
+    depositOriginalAmount: amountValue(row.deposit_original_amount),
+    depositCurrency: moneyCode(row.deposit_currency),
+    depositFxRate: rateValue(row.deposit_fx_rate),
+    depositFxDate: ymdValue(row.deposit_fx_date),
+    depositAmountRm: amountValue(row.deposit_amount_rm),
+    depositFxOverridden: isYes(row.deposit_fx_overridden),
+    depositFxCached: isYes(row.deposit_fx_cached),
+    depositDate: ymdValue(row.deposit_date),
+    balanceDueRm: amountValue(row.balance_due_rm),
+    balancePaidOriginalAmount: amountValue(row.balance_paid_original_amount),
+    balancePaidCurrency: moneyCode(row.balance_paid_currency),
+    balancePaidFxRate: rateValue(row.balance_paid_fx_rate),
+    balancePaidFxDate: ymdValue(row.balance_paid_fx_date),
+    balancePaidRm: amountValue(row.balance_paid_rm),
+    balancePaidFxOverridden: isYes(row.balance_paid_fx_overridden),
+    balancePaidFxCached: isYes(row.balance_paid_fx_cached),
+    balancePaidDate: ymdValue(row.balance_paid_date),
+    finalTotalRm: amountValue(row.final_total_rm),
+    preorderStatus,
+    createdAt: fromSheetTime(row.created_at ?? row.createdAt),
+    updatedAt: fromSheetTime(row.updated_at ?? row.updatedAt)
+  };
+}
+
+export function wishFromRow(row) {
+  if (!row || typeof row !== 'object') return null;
+  const id = rowId(row);
+  if (!id) return null;
+  return {
+    id,
+    name: String(row.name ?? ''),
+    originalAmount: amountValue(row.original_amount ?? row.originalAmount),
+    currency: moneyCode(row.currency),
+    fxRate: rateValue(row.fx_rate ?? row.fxRate),
+    fxDate: ymdValue(row.fx_date ?? row.fxDate),
+    price: amountValue(row.amount_rm ?? row.price),
+    fxOverridden: isYes(row.fx_overridden ?? row.fxOverridden),
+    fxCached: isYes(row.fx_cached ?? row.fxCached),
+    priority: priorityValue(row.priority),
+    addedAt: fromSheetTime(row.added_at ?? row.addedAt),
+    updatedAt: fromSheetTime(row.updated_at ?? row.updatedAt)
+  };
+}
+
+export function saleFromRow(row) {
+  if (!row || typeof row !== 'object') return null;
+  const id = rowId(row);
+  if (!id) return null;
+  return {
+    id,
+    name: String(row.name ?? ''),
+    brand: String(row.brand ?? ''),
+    series: String(row.series ?? ''),
+    condition: String(row.condition ?? ''),
+    originalAmount: amountValue(row.original_amount ?? row.originalAmount),
+    currency: moneyCode(row.currency),
+    fxRate: rateValue(row.fx_rate ?? row.fxRate),
+    fxDate: ymdValue(row.fx_date ?? row.fxDate),
+    price: amountValue(row.amount_rm ?? row.price),
+    fxOverridden: isYes(row.fx_overridden ?? row.fxOverridden),
+    fxCached: isYes(row.fx_cached ?? row.fxCached),
+    notes: String(row.notes ?? ''),
+    status: saleStatusValue(row.status),
+    soldOriginalAmount: amountValue(row.sold_original_amount ?? row.soldOriginalAmount),
+    soldCurrency: moneyCode(row.sold_currency ?? row.soldCurrency),
+    soldFxRate: rateValue(row.sold_fx_rate ?? row.soldFxRate),
+    soldFxDate: ymdValue(row.sold_fx_date ?? row.soldFxDate),
+    soldFxOverridden: isYes(row.sold_fx_overridden ?? row.soldFxOverridden),
+    soldFxCached: isYes(row.sold_fx_cached ?? row.soldFxCached),
+    soldPrice: amountValue(row.sold_amount_rm ?? row.soldPrice),
+    soldDate: ymdValue(row.sold_date ?? row.soldDate),
+    createdAt: fromSheetTime(row.created_at ?? row.createdAt),
+    updatedAt: fromSheetTime(row.updated_at ?? row.updatedAt)
+  };
+}
+
 function replaceRow(rows, row) {
   const index = rows.findIndex((item) => item.id === row.id);
   if (index === -1) rows.push(row);
@@ -349,6 +584,95 @@ export function syncAllBody(data, queue = []) {
     purchases: tables.Purchases,
     wishlist: tables.Wishlist,
     forSale: tables['For Sale']
+  };
+}
+
+const MERGE_TABLES = [
+  { key: 'purchases', sheet: 'Purchases', fromRow: purchaseFromRow },
+  { key: 'wishlist', sheet: 'Wishlist', fromRow: wishFromRow },
+  { key: 'forSale', sheet: 'For Sale', fromRow: saleFromRow }
+];
+
+function adoptRow(key, parsed, settings, month) {
+  const input = { settings, purchases: [], wishlist: [], forSale: [] };
+  input[key] = [parsed];
+  return normalizeData(input, month)[key][0] || null;
+}
+
+function newestMs(values) {
+  let max = 0;
+  for (const value of values) {
+    const ms = sheetInstant(value);
+    if (ms > max) max = ms;
+  }
+  return max;
+}
+
+function mergeTable(localRows, remoteRows, spec, queue, settings, month, dropped) {
+  const local = (localRows || []).slice();
+  if (!Array.isArray(remoteRows)) return { rows: localRows || [], changed: false };
+  const indexById = new Map(local.map((item, index) => [String(item.id), index]));
+  const queued = new Map();
+  const deleted = new Set();
+  for (const op of queue) {
+    if (op.sheet !== spec.sheet || op.id == null) continue;
+    if (op.op === 'delete') deleted.add(String(op.id));
+    if (op.op === 'upsert' && op.row) queued.set(String(op.id), op.row);
+  }
+  let changed = false;
+  const categories = settings.categories || [];
+  for (const raw of remoteRows) {
+    const parsed = spec.fromRow(raw, categories);
+    if (!parsed?.id) continue;
+    const id = String(parsed.id);
+    if (deleted.has(id)) continue;
+    const adopted = adoptRow(spec.key, parsed, settings, month);
+    if (!adopted) continue;
+    const index = indexById.get(id);
+    const existing = index == null ? null : local[index];
+    const queuedRow = queued.get(id);
+    if (!existing && !queuedRow) {
+      indexById.set(id, local.length);
+      local.push(adopted);
+      changed = true;
+      continue;
+    }
+    const localMs = newestMs([existing?.updatedAt, queuedRow?.updated_at, queuedRow?.updatedAt]);
+    if (sheetInstant(adopted.updatedAt) > localMs) {
+      if (index == null) {
+        indexById.set(id, local.length);
+        local.push(adopted);
+      } else local[index] = adopted;
+      if (queuedRow) dropped.add(`${spec.sheet}\0${id}`);
+      changed = true;
+    }
+  }
+  return { rows: changed ? local : (localRows || []), changed };
+}
+
+// Remote rows join local rows by id. The newer updated_at wins. Local-only rows
+// stay. A queued delete blocks that id, so a sheet row cannot bring it back.
+// A payload that omits a table (for example a price-check read) is not an empty tab.
+export function mergeSheet(data, payload, queue = []) {
+  const settings = data?.settings || {};
+  const month = currentMonth();
+  const source = payload || {};
+  const dropped = new Set();
+  const merged = {};
+  let changed = false;
+  for (const spec of MERGE_TABLES) {
+    const table = mergeTable(data?.[spec.key], source[spec.key], spec, queue, settings, month, dropped);
+    merged[spec.key] = table.rows;
+    if (table.changed) changed = true;
+  }
+  const nextQueue = dropped.size
+    ? queue.filter((op) => !(op.op === 'upsert' && dropped.has(`${op.sheet}\0${String(op.id)}`)))
+    : queue;
+  if (!changed) return { data, queue: nextQueue, changed: false };
+  return {
+    data: normalizeData({ ...data, settings, ...merged }, month),
+    queue: nextQueue,
+    changed: true
   };
 }
 
@@ -436,16 +760,96 @@ function storePulledChecks(checks) {
   db().setItem(LOCAL_CHECKS_KEY, JSON.stringify(local));
 }
 
+async function fetchSheet(url, options) {
+  const fetchFn = options.fetchImpl || globalThis.fetch;
+  const response = await fetchFn(withToken(url), { method: 'GET', redirect: 'follow' });
+  let payload;
+  try {
+    payload = JSON.parse(await response.text());
+  } catch {
+    throw new Error('The sheet did not return JSON.');
+  }
+  if (!payload || payload.ok === false) throw new Error(payload?.error || 'sync failed');
+  if (response.ok === false) throw new Error(`http ${response.status}`);
+  return payload;
+}
+
+function latestData(fallback) {
+  try {
+    const fresh = dataSource();
+    if (fresh && looksLikeData(fresh)) return fresh;
+  } catch {
+    // The copy the caller already loaded is still safe to merge into.
+  }
+  return fallback;
+}
+
+function notifyMerge() {
+  if (typeof mergeListener !== 'function') return;
+  try {
+    mergeListener();
+  } catch {
+    // A redraw problem must not skip the push that keeps sheet-only rows.
+  }
+}
+
+function sameOps(left, right) {
+  return JSON.stringify(left) === JSON.stringify(right);
+}
+
+function applyPayload(data, payload) {
+  const merged = mergeSheet(data, payload, readQueue());
+  if (!sameOps(merged.queue, readQueue())) writeQueue(merged.queue);
+  if (!merged.changed) return data;
+  try {
+    save(merged.data);
+  } catch {
+    return merged.data;
+  }
+  notifyMerge();
+  return merged.data;
+}
+
+function exclusive(task) {
+  const run = gate.then(task, task);
+  gate = run.then(() => {}, () => {});
+  return run;
+}
+
+async function pullAndApply(data, options) {
+  const url = resolveSyncUrl(data?.settings);
+  const payload = await fetchSheet(url, options);
+  storePulledChecks(payload.priceChecks);
+  return applyPayload(latestData(data) || data, payload);
+}
+
 export async function pullPriceChecks(settings, options = {}) {
   const url = resolveSyncUrl(settings);
   if (!url || offline(options)) return cachedPriceChecks();
-  const fetchFn = options.fetchImpl || globalThis.fetch;
-  const response = await fetchFn(withToken(url), { method: 'GET', redirect: 'follow' });
-  const payload = JSON.parse(await response.text());
-  if (!payload || payload.ok === false) throw new Error(payload?.error || 'sync failed');
-  const checks = Array.isArray(payload.priceChecks) ? payload.priceChecks : [];
-  storePulledChecks(checks);
+  const payload = await fetchSheet(url, options);
+  storePulledChecks(payload.priceChecks);
   return cachedPriceChecks();
+}
+
+export function refreshFromSheet(getData, options = {}) {
+  return exclusive(() => refreshFromSheetBody(getData, options));
+}
+
+async function refreshFromSheetBody(getData, options) {
+  const read = () => (typeof getData === 'function' ? getData() : getData);
+  const initial = read();
+  if (!initial) return { ok: false, reason: 'nodata' };
+  const url = resolveSyncUrl(initial.settings);
+  if (!url) return { ok: false, reason: 'off' };
+  if (offline(options)) return { ok: false, reason: 'offline' };
+  try {
+    const payload = await fetchSheet(url, options);
+    storePulledChecks(payload.priceChecks);
+    applyPayload(latestData(read() || initial) || initial, payload);
+    return { ok: true };
+  } catch (error) {
+    return { ok: false, error: String(error.message || error) };
+  }
 }
 
 export async function flushQueue(getData, options = {}) {
@@ -502,6 +906,10 @@ async function postQueued(url, options) {
 }
 
 export async function syncAllNow(data, options = {}) {
+  return exclusive(() => syncAllNowBody(data, options));
+}
+
+async function syncAllNowBody(data, options) {
   const url = resolveSyncUrl(data?.settings);
   if (!url) {
     setPhase('off');
@@ -512,24 +920,32 @@ export async function syncAllNow(data, options = {}) {
     setPhase('offline');
     return { ok: false, reason: 'offline' };
   }
-  const pending = readQueue();
-  const tables = syncTables(data, pending);
-  const covered = new Set(pending.filter((op) => fullSyncCovers(op, tables)).map(opKey));
   setPhase('syncing');
+  let current = data;
   try {
-    const result = await postJson(url, syncAllBody(data, pending), options.fetchImpl);
+    current = await pullAndApply(data, options);
+  } catch (error) {
+    // Leave the queue and any pending full sync. Pushing now would delete sheet-only rows.
+    setPhase(offline(options) ? 'offline' : 'error');
+    return { ok: false, error: String(error.message || error) };
+  }
+  const pending = readQueue();
+  const tables = syncTables(current, pending);
+  const covered = new Set(pending.filter((op) => fullSyncCovers(op, tables)).map(opKey));
+  try {
+    const result = await postJson(url, syncAllBody(current, pending), options.fetchImpl);
     if (!result || result.ok === false) throw new Error(result?.error || 'sync failed');
     clearFull();
     writeQueue(readQueue().filter((op) => !covered.has(opKey(op))));
     const posted = await postQueued(url, options);
     if (!posted.ok) return posted;
     try {
-      await pullPriceChecks(data.settings, options);
+      await pullPriceChecks(current.settings, options);
     } catch {
       // Full push succeeded even if the read failed.
     }
     setPhase(readQueue().length ? 'error' : 'idle');
-    return { ok: true };
+    return { ok: true, data: current };
   } catch (error) {
     markFull();
     setPhase('error');
@@ -565,14 +981,19 @@ export function kickSync(getData) {
 }
 
 export function startAutoSync(getData) {
+  dataSource = typeof getData === 'function' ? getData : () => getData;
   refreshSyncStatus(getData);
   if (typeof window === 'undefined') return;
   window.addEventListener('online', () => kickSync(getData));
   window.addEventListener('offline', () => {
     if (resolveSyncUrl(getData()?.settings)) setPhase('offline');
   });
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') refreshFromSheet(getData);
+  });
   setInterval(() => {
     if (readQueue().length || needsFull()) kickSync(getData);
   }, 30000);
+  refreshFromSheet(getData);
   kickSync(getData);
 }
