@@ -233,6 +233,7 @@ function parseRoute() {
   if (hash.startsWith('edit-sale/')) {
     return { name: 'edit-sale', id: decodeURIComponent(hash.slice('edit-sale/'.length)) };
   }
+  if (hash.startsWith('pay/')) return { name: 'pay', id: decodeURIComponent(hash.slice(4)) };
   if (hash.startsWith('edit/')) return { name: 'edit', id: decodeURIComponent(hash.slice(5)) };
   if (['home', 'log', 'entries', 'wish', 'plan', 'sell', 'settings'].includes(hash)) {
     return { name: hash, id: null };
@@ -242,7 +243,7 @@ function parseRoute() {
 
 function setNav(name) {
   const current = name === 'plan' ? 'wish'
-    : (name === 'log' || name === 'entries' || name === 'edit') ? 'log'
+    : (name === 'log' || name === 'entries' || name === 'edit' || name === 'pay') ? 'log'
       : name === 'edit-sale' ? 'sell'
         : name;
   document.querySelectorAll('.nav a').forEach((link) => {
@@ -255,7 +256,7 @@ function setNav(name) {
 function viewFor(route, data, today) {
   if (route.name === 'log') return logPage(data, 'add', today);
   if (route.name === 'entries') return logPage(data, 'entries', today, route);
-  if (route.name === 'edit') return editPurchaseView(data, route.id, today);
+  if (route.name === 'edit' || route.name === 'pay') return editPurchaseView(data, route.id, today, route.name === 'pay');
   if (route.name === 'wish' || route.name === 'plan') return wishView(data, route.name);
   if (route.name === 'sell') return sellPage(data, null);
   if (route.name === 'edit-sale') return sellPage(data, route.id);
@@ -422,7 +423,7 @@ function entriesScope(data, route) {
   `;
 }
 
-function editPurchaseView(data, id, today) {
+function editPurchaseView(data, id, today, openPay = false) {
   const purchase = data.purchases.find((item) => item.id === id);
   if (!purchase) {
     return `
@@ -433,7 +434,7 @@ function editPurchaseView(data, id, today) {
       </section>
     `;
   }
-  return purchaseForm(purchase, today, data.settings.categories);
+  return purchaseForm(purchase, today, data.settings.categories, { openPay });
 }
 
 function typingAttrs(capitalize) {
@@ -470,7 +471,7 @@ function suggestionList(key) {
   return `<datalist id="${esc(key)}-list">${options}</datalist>`;
 }
 
-function purchaseForm(purchase, today, categories = []) {
+function purchaseForm(purchase, today, categories = [], options = {}) {
   const editing = Boolean(purchase);
   const value = purchase || {
     name: '', series: '', brand: '', figureType: '', boughtAs: 'purchased', condition: '',
@@ -478,12 +479,13 @@ function purchaseForm(purchase, today, categories = []) {
     date: today, shop: '', notes: ''
   };
   const preorder = (value.boughtAs || 'purchased') === 'preorder';
-  const showPay = Boolean(purchase && purchase.balancePaidRm != null);
-  const openMore = Boolean(value.shop || value.notes);
   const canPay = editing && preorder && purchase.preorderStatus === 'deposit paid';
+  const showPay = Boolean((purchase && purchase.balancePaidRm != null) || (options.openPay && canPay));
+  const openMore = Boolean(value.shop || value.notes);
+  const title = preorder ? 'Edit pre-order' : 'Edit purchase';
   return `
     <section${editing ? ' class="stack"' : ''}>
-      ${editing ? `<div class="title-row"><a class="icon-btn" href="#entries" aria-label="Back to entries">${BACK}</a><h2>Edit purchase</h2></div>` : ''}
+      ${editing ? `<div class="title-row"><a class="icon-btn" href="#entries" aria-label="Back to entries">${BACK}</a><h2>${title}</h2></div>` : ''}
       <form id="${editing ? 'edit-form' : 'log-form'}" ${editing ? `data-id="${esc(purchase.id)}"` : ''} novalidate>
         <div class="group">
           <div class="row">
@@ -581,7 +583,7 @@ function purchaseForm(purchase, today, categories = []) {
             </div>
           </div>
         </div>
-        ${canPay ? '<button class="btn btn-ghost" type="button" data-action="show-pay">Pay balance</button>' : ''}
+        ${canPay && !showPay ? '<button class="btn btn-ghost" type="button" data-action="show-pay">Pay balance</button>' : ''}
         <details class="group more" ${openMore ? 'open' : ''}>
           <summary data-edge>
             <span class="more-copy">
@@ -745,12 +747,16 @@ function groupHtml(group, offset, purchases, preordersOnly) {
 
 function purchaseCard(purchase, index, options = {}) {
   const preorder = preorderNote(purchase);
-  const pay = purchase.boughtAs === 'preorder' && purchase.preorderStatus === 'deposit paid'
-    ? `<a class="btn btn-primary" href="#edit/${encodeURIComponent(purchase.id)}">Pay balance</a>`
-    : `<a class="btn btn-ghost" href="#edit/${encodeURIComponent(purchase.id)}">Edit</a>`;
+  const unpaid = purchase.boughtAs === 'preorder' && purchase.preorderStatus === 'deposit paid';
+  const id = encodeURIComponent(purchase.id);
   const remove = options.home
     ? ''
     : `<button class="btn btn-ghost" type="button" data-action="delete-purchase" data-id="${esc(purchase.id)}">Delete</button>`;
+  const actionCount = (unpaid ? 1 : 0) + 1 + (remove ? 1 : 0);
+  const pay = unpaid
+    ? `<a class="btn btn-primary${actionCount > 2 ? ' span-row' : ''}" href="#pay/${id}">Pay balance</a>`
+    : '';
+  const edit = `<a class="btn btn-ghost" href="#edit/${id}">Edit</a>`;
   return `
     <article class="block" data-id="${esc(purchase.id)}">
       <div class="card-head" data-edge>
@@ -767,8 +773,9 @@ function purchaseCard(purchase, index, options = {}) {
       ${sourceLine(purchase)}
       ${preorder ? `<p class="meta money-note" data-edge>${withAmounts(preorder)}</p>` : ''}
       ${purchase.notes ? `<p class="note" data-edge>${withAmounts(purchase.notes)}</p>` : ''}
-      <div class="btn-row${options.home ? ' solo' : ''}">
+      <div class="btn-row${actionCount === 1 ? ' solo' : ''}">
         ${pay}
+        ${edit}
         ${remove}
       </div>
     </article>
