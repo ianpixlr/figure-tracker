@@ -1144,6 +1144,8 @@ button:disabled { opacity: 0.45; cursor: not-allowed; }
 
 .btn-row.solo { grid-template-columns: 1fr; }
 
+.btn-row > .span-row { grid-column: 1 / -1; }
+
 .search-pills {
   display: flex;
   flex-wrap: wrap;

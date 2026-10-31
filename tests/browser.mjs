@@ -2701,6 +2701,29 @@ async function main() {
     assert.equal(paidTotals.paidNote, true);
     assert.ok(paidTotals.byType.some((row) => row.includes('1/6') && row.includes('RM 475.00')));
     assert.ok(paidTotals.byType.some((row) => row.includes('1/12') && row.includes('RM 1,000.00')));
+    const entryActions = await page.evaluate(() => {
+      const read = (id) => {
+        const card = document.querySelector(`[data-id="${id}"] .btn-row`);
+        return [...card.querySelectorAll('a, button')].map((el) => ({
+          text: el.textContent.trim(),
+          href: el.getAttribute('href') || ''
+        }));
+      };
+      return { asuka: read('asuka'), rei: read('rei'), prize: read('prize') };
+    });
+    assert.deepEqual(entryActions.asuka, [
+      { text: 'Pay balance', href: '#pay/asuka' },
+      { text: 'Edit', href: '#edit/asuka' },
+      { text: 'Delete', href: '' }
+    ]);
+    assert.deepEqual(entryActions.rei, [
+      { text: 'Edit', href: '#edit/rei' },
+      { text: 'Delete', href: '' }
+    ]);
+    assert.deepEqual(entryActions.prize, [
+      { text: 'Edit', href: '#edit/prize' },
+      { text: 'Delete', href: '' }
+    ]);
     await page.evaluate(() => {
       const scroller = document.getElementById('main');
       const header = [...document.querySelectorAll('.month-group h3')].find((el) => el.textContent.includes('September'));
@@ -3083,19 +3106,146 @@ async function main() {
     await go(page, '#entries', '[data-id="soundwave"]');
     const payEntry = await page.evaluate(() => {
       const card = document.querySelector('.month-group [data-id="soundwave"]');
-      return [...card.querySelectorAll('.btn-row a, .btn-row button')].map((el) => el.textContent.trim());
+      const row = card.querySelector('.btn-row');
+      const buttons = [...row.querySelectorAll('a, button')];
+      const [pay, edit, remove] = buttons;
+      const payBox = pay.getBoundingClientRect();
+      const editBox = edit.getBoundingClientRect();
+      const removeBox = remove.getBoundingClientRect();
+      const rowBox = row.getBoundingClientRect();
+      const oneLine = (el) => {
+        const range = document.createRange();
+        range.selectNodeContents(el);
+        return [...range.getClientRects()].filter((item) => item.width > 0.5).length === 1;
+      };
+      return {
+        labels: buttons.map((el) => el.textContent.trim()),
+        hrefs: buttons.map((el) => el.getAttribute('href') || ''),
+        payFull: Math.abs(payBox.width - rowBox.width) <= 2,
+        payAbove: payBox.bottom <= editBox.top + 1,
+        sameRow: Math.abs(editBox.top - removeBox.top) <= 1,
+        gap: Math.round(removeBox.left - editBox.right),
+        editLeft: Math.abs(editBox.left - payBox.left) <= 1,
+        deleteRight: Math.abs(removeBox.right - payBox.right) <= 1,
+        oneLine: buttons.every(oneLine),
+        classes: buttons.map((el) => el.className)
+      };
     });
-    assert.deepEqual(payEntry, ['Pay balance', 'Delete']);
+    assert.deepEqual(payEntry.labels, ['Pay balance', 'Edit', 'Delete']);
+    assert.deepEqual(payEntry.hrefs, ['#pay/soundwave', '#edit/soundwave', '']);
+    assert.equal(payEntry.payFull, true);
+    assert.equal(payEntry.payAbove, true);
+    assert.equal(payEntry.sameRow, true);
+    assert.equal(payEntry.gap, 8);
+    assert.equal(payEntry.editLeft, true);
+    assert.equal(payEntry.deleteRight, true);
+    assert.equal(payEntry.oneLine, true);
+    assert.deepEqual(payEntry.classes, ['btn btn-primary span-row', 'btn btn-ghost', 'btn btn-ghost']);
     await go(page, '#home', '[data-id="soundwave"]');
     const payHome = await page.evaluate(() => {
       const latest = document.querySelector('[data-id="soundwave"]');
+      const row = latest.querySelector('.btn-row');
+      const buttons = [...row.querySelectorAll('a, button')];
+      const [pay, edit] = buttons;
+      const payBox = pay.getBoundingClientRect();
+      const editBox = edit.getBoundingClientRect();
+      const oneLine = (el) => {
+        const range = document.createRange();
+        range.selectNodeContents(el);
+        return [...range.getClientRects()].filter((item) => item.width > 0.5).length === 1;
+      };
       return {
-        buttons: [...latest.querySelectorAll('.btn-row a, .btn-row button')].map((el) => el.textContent.trim()),
-        arrow: Boolean(latest.querySelector('.arrow'))
+        buttons: buttons.map((el) => el.textContent.trim()),
+        hrefs: buttons.map((el) => el.getAttribute('href') || ''),
+        arrow: Boolean(latest.querySelector('.arrow')),
+        solo: row.classList.contains('solo'),
+        sameRow: Math.abs(payBox.top - editBox.top) <= 1,
+        gap: Math.round(editBox.left - payBox.right),
+        oneLine: buttons.every(oneLine)
       };
     });
-    assert.deepEqual(payHome.buttons, ['Pay balance']);
+    assert.deepEqual(payHome.buttons, ['Pay balance', 'Edit']);
+    assert.deepEqual(payHome.hrefs, ['#pay/soundwave', '#edit/soundwave']);
     assert.equal(payHome.arrow, false);
+    assert.equal(payHome.solo, false);
+    assert.equal(payHome.sameRow, true);
+    assert.equal(payHome.gap, 8);
+    assert.equal(payHome.oneLine, true);
+
+    await go(page, '#edit/soundwave', '#edit-form');
+    const editRoute = await page.evaluate(() => ({
+      title: document.querySelector('#main h2')?.textContent.trim() || '',
+      hash: location.hash,
+      payHidden: document.querySelector('[data-pay-box]')?.hidden ?? null,
+      showPay: Boolean(document.querySelector('[data-action="show-pay"]')),
+      nav: document.querySelector('.nav a[aria-current="page"]')?.textContent.trim() || ''
+    }));
+    assert.equal(editRoute.title, 'Edit pre-order');
+    assert.equal(editRoute.hash, '#edit/soundwave');
+    assert.equal(editRoute.payHidden, true);
+    assert.equal(editRoute.showPay, true);
+    assert.equal(editRoute.nav, 'Log');
+    await press(page, '#edit-form button[type="submit"]');
+    await page.waitForFunction(() => location.hash === '#entries');
+    await page.waitForSelector('#chart');
+    const afterEdit = await page.evaluate(() => {
+      const item = JSON.parse(localStorage.getItem('figure-cap.v1')).purchases.find((row) => row.id === 'soundwave');
+      return { status: item.preorderStatus, balance: item.balancePaidRm, name: item.name };
+    });
+    assert.equal(afterEdit.status, 'deposit paid');
+    assert.equal(afterEdit.balance, null);
+    assert.equal(afterEdit.name, 'Soundwave (Laserbeak)');
+
+    await go(page, '#pay/soundwave', '#edit-form');
+    const payRoute = await page.evaluate(() => ({
+      title: document.querySelector('#main h2')?.textContent.trim() || '',
+      hash: location.hash,
+      payHidden: document.querySelector('[data-pay-box]')?.hidden ?? null,
+      showPay: Boolean(document.querySelector('[data-action="show-pay"]')),
+      balance: Boolean(document.getElementById('field-balance')),
+      nav: document.querySelector('.nav a[aria-current="page"]')?.textContent.trim() || ''
+    }));
+    assert.equal(payRoute.title, 'Edit pre-order');
+    assert.equal(payRoute.hash, '#pay/soundwave');
+    assert.equal(payRoute.payHidden, false);
+    assert.equal(payRoute.showPay, false);
+    assert.equal(payRoute.balance, true);
+    assert.equal(payRoute.nav, 'Log');
+    await typeInto(page, '#field-balance', '60');
+    await press(page, '#edit-form button[type="submit"]');
+    await page.waitForFunction(() => location.hash === '#entries');
+    await page.waitForSelector('[data-id="soundwave"]');
+    const paidOff = await page.evaluate(() => {
+      const item = JSON.parse(localStorage.getItem('figure-cap.v1')).purchases.find((row) => row.id === 'soundwave');
+      const card = document.querySelector('[data-id="soundwave"]');
+      return {
+        status: item.preorderStatus,
+        balance: item.balancePaidRm,
+        buttons: [...card.querySelectorAll('.btn-row a, .btn-row button')].map((el) => el.textContent.trim())
+      };
+    });
+    assert.equal(paidOff.status, 'fully paid');
+    assert.equal(paidOff.balance, 60);
+    assert.deepEqual(paidOff.buttons, ['Edit', 'Delete']);
+    await go(page, '#edit/soundwave', '#edit-form');
+    const paidEdit = await page.evaluate(() => ({
+      title: document.querySelector('#main h2')?.textContent.trim() || '',
+      payHidden: document.querySelector('[data-pay-box]')?.hidden ?? null,
+      showPay: Boolean(document.querySelector('[data-action="show-pay"]'))
+    }));
+    assert.equal(paidEdit.title, 'Edit pre-order');
+    assert.equal(paidEdit.payHidden, false);
+    assert.equal(paidEdit.showPay, false);
+    await go(page, '#edit/plain', '#edit-form');
+    const plainEdit = await page.evaluate(() => ({
+      title: document.querySelector('#main h2')?.textContent.trim() || '',
+      payHidden: document.querySelector('[data-pay-box]')?.hidden ?? null,
+      showPay: Boolean(document.querySelector('[data-action="show-pay"]'))
+    }));
+    assert.equal(plainEdit.title, 'Edit purchase');
+    assert.equal(plainEdit.payHidden, true);
+    assert.equal(plainEdit.showPay, false);
+
     await page.evaluate((saved) => localStorage.setItem('figure-cap.v1', saved), homeBeforePay);
     await go(page, '#entries', '#chart');
 
